@@ -6,7 +6,7 @@ from typing import Optional
 from app.integrations.repolens.schema import RepositoryContext
 
 class ContextStorage:
-    def __init__(self, base_dir: str = "vigil_data/contexts"):
+    def __init__(self, base_dir: str = "/tmp/vigil_data/contexts"):
         self.base_dir = base_dir
         os.makedirs(self.base_dir, exist_ok=True)
 
