@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.core.auth import ReviewerContext, get_current_reviewer
 from app.db.session import get_db
 from app.schemas.commit import CommitListResponse, CommitRead
 from app.schemas.pull_request import PullRequestListResponse, PullRequestRead
@@ -73,6 +74,7 @@ class CommitSyncResponse(BaseModel):
 async def sync_installation_repositories(
     installation_id: int,
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ) -> RepositorySyncResponse:
     synced = await github_sync_service.sync_installation_repositories(
         installation_id=installation_id, db=db
@@ -98,6 +100,7 @@ async def sync_repository_pull_requests(
     installation_id: int = Query(..., description="GitHub App Installation ID"),
     state: str = Query("all", description="PR state filter: open, closed, all"),
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ) -> PullRequestSyncResponse:
     synced = await github_sync_service.sync_repository_pull_requests(
         installation_id=installation_id,
@@ -125,6 +128,7 @@ async def sync_pull_request_commits(
     pull_request_id: uuid.UUID,
     installation_id: int = Query(..., description="GitHub App Installation ID"),
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ) -> CommitSyncResponse:
     synced = await github_sync_service.sync_pull_request_commits(
         installation_id=installation_id,
@@ -152,6 +156,7 @@ async def sync_repository_full(
     installation_id: int = Query(..., description="GitHub App Installation ID"),
     pr_state: str = Query("all", description="PR state filter: open, closed, all"),
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ) -> SyncSummaryResponse:
     result = await github_sync_service.sync_repository_full(
         installation_id=installation_id,
@@ -160,3 +165,4 @@ async def sync_repository_full(
         pr_state=pr_state,
     )
     return SyncSummaryResponse(**result)
+

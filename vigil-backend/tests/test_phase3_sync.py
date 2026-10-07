@@ -116,16 +116,22 @@ async def test_sync_pull_request_commits_service(db_session):
 
 def test_sync_endpoints_auth_and_structure(db_session_override):
     repo_id = uuid.uuid4()
-    
+
+    # Unauthenticated request returns 401
+    res_unauth = client.post(f"/api/v1/sync/installations/123/repositories")
+    assert res_unauth.status_code == 401
+
+    headers = {"X-Reviewer-Login": "test-reviewer"}
     with patch("app.integrations.github.client.github_client.get_all_installation_repositories", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = []
-        res = client.post(f"/api/v1/sync/installations/123/repositories")
+        res = client.post(f"/api/v1/sync/installations/123/repositories", headers=headers)
         assert res.status_code == 200
-        
-    res = client.post(f"/api/v1/sync/repositories/{repo_id}/pull-requests")
-    assert res.status_code == 422 
-    
+
+    res = client.post(f"/api/v1/sync/repositories/{repo_id}/pull-requests", headers=headers)
+    assert res.status_code == 422
+
     with patch("app.integrations.github.client.github_client.get_repository_pull_requests", new_callable=AsyncMock) as mock_get_prs:
         mock_get_prs.return_value = []
-        res = client.post(f"/api/v1/sync/repositories/{repo_id}/pull-requests?installation_id=123")
+        res = client.post(f"/api/v1/sync/repositories/{repo_id}/pull-requests?installation_id=123", headers=headers)
         assert res.status_code == 404 # Repo not found in db
+

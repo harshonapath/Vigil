@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.github.client import github_client
 from app.schemas.repository import RepositoryListResponse, RepositoryRead
@@ -23,9 +24,14 @@ async def list_me_repositories(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db: Session = Depends(get_db),
 ) -> RepositoryListResponse:
-    if installation_id is not None:
+    # Auto-use configured installation ID if none provided
+    effective_installation_id = installation_id
+    if effective_installation_id is None and settings.GITHUB_INSTALLATION_ID:
+        effective_installation_id = settings.GITHUB_INSTALLATION_ID
+
+    if effective_installation_id is not None and effective_installation_id > 0:
         try:
-            repos_data = await github_client.get_all_installation_repositories(installation_id)
+            repos_data = await github_client.get_all_installation_repositories(effective_installation_id)
             repository_service.sync_installation_repositories(db=db, repos_data=repos_data)
         except Exception:
             # Fall back to existing database cache if GitHub API is unreachable

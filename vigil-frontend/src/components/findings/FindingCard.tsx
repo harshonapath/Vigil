@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, MapPin, FileCode, AlertTriangle, Lightbulb, Search, Tag } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin, FileCode, AlertTriangle, Lightbulb, Search, Tag, ShieldAlert, Zap, TriangleAlert, LockKeyhole } from 'lucide-react';
 import type { FindingRead } from '../../types';
 import { Card, CardContent } from '../common/Card';
 import { Badge } from '../common/Badge';
@@ -13,6 +13,10 @@ interface FindingCardProps {
 function getCategoryLabel(category: string): string {
   const labels: Record<string, string> = {
     SECURITY: 'Security',
+    PROMPT_INJECTION: 'Prompt Injection',
+    COMPLEXITY: 'Complexity',
+    EDGE_CASE: 'Edge Case',
+    SECURITY_ASSUMPTION: 'Security Assumption',
     LOGIC: 'Logic',
     ERROR_HANDLING: 'Error Handling',
     TESTING: 'Testing',
@@ -31,9 +35,14 @@ function getSourceLabel(source: string): string {
     TRIVY: 'Trivy',
     MS_SECURITY_DEVOPS: 'MS Security DevOps',
     AI_REVIEW: 'SecurePR AI',
+    SECURITY_DETECTOR: 'Security Detector',
+    COMPLEXITY_ANALYZER: 'Complexity Analyzer',
+    EDGE_CASE_ANALYZER: 'Edge Case Analyzer',
+    SECURITY_ASSUMPTION_ANALYZER: 'Security Assumption Analyzer',
   };
   return labels[source.toUpperCase()] || source;
 }
+
 
 function getStatusVariant(status: string): 'outline' | 'critical' | 'success' | 'secondary' {
   switch (status.toUpperCase()) {
@@ -48,13 +57,89 @@ function getStatusVariant(status: string): 'outline' | 'critical' | 'success' | 
 export const FindingCard: React.FC<FindingCardProps> = ({ finding }) => {
   const [expanded, setExpanded] = useState(false);
   const evidence = finding.evidence;
+  const isInjectionFinding = finding.category.toUpperCase() === 'PROMPT_INJECTION';
+  const isComplexityFinding = finding.category.toUpperCase() === 'COMPLEXITY';
+  const isEdgeCaseFinding = finding.category.toUpperCase() === 'EDGE_CASE';
+  const isAssumptionFinding = finding.category.toUpperCase() === 'SECURITY_ASSUMPTION';
+
+  const currentTimeComp = evidence?.current_time_complexity as string | undefined;
+  const suggestedTimeComp = evidence?.suggested_time_complexity as string | undefined;
+  const currentSpaceComp = evidence?.current_space_complexity as string | undefined;
+  const suggestedSpaceComp = evidence?.suggested_space_complexity as string | undefined;
+
+  const edgeCaseType = evidence?.edge_case_type as string | undefined;
+  const edgeScenario = evidence?.scenario as string | undefined;
+  const edgeExpected = evidence?.expected_behavior as string | undefined;
+  const edgeCurrent = evidence?.current_behavior as string | undefined;
+  const edgeImpact = evidence?.potential_impact as string | undefined;
+
+  const assumptionName = evidence?.assumption_name as string | undefined;
+  const assumptionScope = evidence?.scope as string | undefined;
+  const prevAssumption = evidence?.previous_assumption as string | undefined;
+  const newAssumption = evidence?.new_assumption as string | undefined;
+  const changeType = evidence?.change_type as string | undefined;
+  const potentialRepercussions = evidence?.potential_repercussions as string | undefined;
 
   return (
     <Card className={cn(
       'transition-all',
-      finding.severity.toUpperCase() === 'CRITICAL' && 'border-red-900/40',
-      finding.severity.toUpperCase() === 'HIGH' && 'border-orange-900/30',
+      isInjectionFinding && 'border-red-600/60 bg-red-950/10',
+      isComplexityFinding && 'border-amber-600/50 bg-amber-950/10',
+      isEdgeCaseFinding && 'border-cyan-600/50 bg-cyan-950/10',
+      isAssumptionFinding && 'border-purple-600/50 bg-purple-950/10',
+      !isInjectionFinding && !isComplexityFinding && !isEdgeCaseFinding && !isAssumptionFinding && finding.severity.toUpperCase() === 'CRITICAL' && 'border-red-900/40',
+      !isInjectionFinding && !isComplexityFinding && !isEdgeCaseFinding && !isAssumptionFinding && finding.severity.toUpperCase() === 'HIGH' && 'border-orange-900/30',
     )}>
+      {/* Injection threat strip */}
+      {isInjectionFinding && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-red-950/60 border-b border-red-700/50 rounded-t-xl">
+          <ShieldAlert className="w-3.5 h-3.5 text-red-400 shrink-0" />
+          <span className="text-[11px] font-semibold text-red-300 uppercase tracking-wider">
+            Prompt Injection — AI Manipulation Attempt Blocked
+          </span>
+        </div>
+      )}
+
+      {/* Complexity strip */}
+      {isComplexityFinding && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-950/60 border-b border-amber-700/50 rounded-t-xl">
+          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="text-[11px] font-semibold text-amber-300 uppercase tracking-wider">
+            Complexity Issue — Algorithmic Optimization Opportunity
+          </span>
+        </div>
+      )}
+
+      {/* Edge Case strip */}
+      {isEdgeCaseFinding && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-cyan-950/60 border-b border-cyan-700/50 rounded-t-xl">
+          <TriangleAlert className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+          <span className="text-[11px] font-semibold text-cyan-300 uppercase tracking-wider">
+            Edge Case — Unhandled Failure Scenario Detected
+          </span>
+          {edgeCaseType && (
+            <Badge variant="outline" className="text-[10px] py-0 border-cyan-700/60 text-cyan-300 ml-auto">
+              {edgeCaseType}
+            </Badge>
+          )}
+        </div>
+      )}
+
+      {/* Security Assumption strip */}
+      {isAssumptionFinding && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-purple-950/60 border-b border-purple-700/50 rounded-t-xl">
+          <LockKeyhole className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <span className="text-[11px] font-semibold text-purple-300 uppercase tracking-wider">
+            Security Assumption Changed — Consistency Regression
+          </span>
+          {changeType && (
+            <Badge variant="outline" className="text-[10px] py-0 border-purple-700/60 text-purple-300 font-mono ml-auto">
+              {changeType}
+            </Badge>
+          )}
+        </div>
+      )}
+
       {/* Header — always visible */}
       <button
         className="w-full text-left p-4 flex items-start gap-3 group hover:bg-slate-800/20 transition-colors rounded-t-xl"
@@ -112,6 +197,134 @@ export const FindingCard: React.FC<FindingCardProps> = ({ finding }) => {
       {expanded && (
         <CardContent className="pt-0 border-t border-slate-800/60">
           <div className="space-y-3 pt-3">
+            {/* Complexity comparison box if metrics present */}
+            {(currentTimeComp || suggestedTimeComp || currentSpaceComp || suggestedSpaceComp) && (
+              <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-xs uppercase tracking-wider">
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Algorithmic Complexity Metrics</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs font-mono">
+                  {(currentTimeComp || suggestedTimeComp) && (
+                    <div className="p-2 bg-slate-900/80 rounded border border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-400">Time Complexity:</span>
+                      <div className="flex items-center gap-1.5">
+                        {currentTimeComp && (
+                          <span className="px-1.5 py-0.5 rounded bg-red-950 text-red-300 border border-red-800/60 font-semibold">
+                            {currentTimeComp}
+                          </span>
+                        )}
+                        {currentTimeComp && suggestedTimeComp && <span className="text-slate-500">→</span>}
+                        {suggestedTimeComp && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60 font-semibold">
+                            {suggestedTimeComp}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {(currentSpaceComp || suggestedSpaceComp) && (
+                    <div className="p-2 bg-slate-900/80 rounded border border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-400">Space Complexity:</span>
+                      <div className="flex items-center gap-1.5">
+                        {currentSpaceComp && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800/60 font-semibold">
+                            {currentSpaceComp}
+                          </span>
+                        )}
+                        {currentSpaceComp && suggestedSpaceComp && <span className="text-slate-500">→</span>}
+                        {suggestedSpaceComp && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60 font-semibold">
+                            {suggestedSpaceComp}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Edge Case Scenario Box */}
+            {isEdgeCaseFinding && (edgeScenario || edgeExpected || edgeCurrent || edgeImpact) && (
+              <div className="p-3 bg-cyan-950/20 border border-cyan-800/40 rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5 text-cyan-400 font-semibold text-xs uppercase tracking-wider">
+                  <TriangleAlert className="w-3.5 h-3.5" />
+                  <span>Edge Case Scenario Analysis</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 pt-1 text-xs">
+                  {edgeScenario && (
+                    <div className="p-2 bg-slate-900/80 rounded border border-slate-800">
+                      <span className="text-slate-400 font-semibold">Trigger Scenario: </span>
+                      <span className="text-slate-200">{edgeScenario}</span>
+                    </div>
+                  )}
+                  {edgeCurrent && (
+                    <div className="p-2 bg-red-950/30 rounded border border-red-900/40">
+                      <span className="text-red-400 font-semibold">Current Behavior: </span>
+                      <span className="text-red-200">{edgeCurrent}</span>
+                    </div>
+                  )}
+                  {edgeExpected && (
+                    <div className="p-2 bg-emerald-950/30 rounded border border-emerald-900/40">
+                      <span className="text-emerald-400 font-semibold">Expected Behavior: </span>
+                      <span className="text-emerald-200">{edgeExpected}</span>
+                    </div>
+                  )}
+                  {edgeImpact && (
+                    <div className="p-2 bg-amber-950/30 rounded border border-amber-900/40">
+                      <span className="text-amber-400 font-semibold">Potential Impact: </span>
+                      <span className="text-amber-200">{edgeImpact}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Security Assumption Change Box */}
+            {isAssumptionFinding && (prevAssumption || newAssumption || changeType || potentialRepercussions || assumptionName) && (
+              <div className="p-3 bg-purple-950/20 border border-purple-800/40 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-purple-400 font-semibold text-xs uppercase tracking-wider">
+                  <div className="flex items-center gap-1.5">
+                    <LockKeyhole className="w-3.5 h-3.5" />
+                    <span>Security Assumption Change Analysis</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {assumptionName && (
+                      <span className="text-[10px] font-mono text-purple-300 font-medium">
+                        {assumptionName}
+                      </span>
+                    )}
+                    {assumptionScope && (
+                      <span className="text-[10px] font-mono text-purple-300/80 lowercase">
+                        scope: {assumptionScope}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 pt-1 text-xs">
+                  {prevAssumption && (
+                    <div className="p-2 bg-slate-900/80 rounded border border-slate-800">
+                      <span className="text-slate-400 font-semibold">Previous Assumption: </span>
+                      <span className="text-slate-200">{prevAssumption}</span>
+                    </div>
+                  )}
+                  {newAssumption && (
+                    <div className="p-2 bg-purple-950/30 rounded border border-purple-900/40">
+                      <span className="text-purple-300 font-semibold">Current / Changed Behavior: </span>
+                      <span className="text-slate-200">{newAssumption}</span>
+                    </div>
+                  )}
+                  {potentialRepercussions && (
+                    <div className="p-2 bg-red-950/30 rounded border border-red-900/40">
+                      <span className="text-red-400 font-semibold">Potential Repercussions: </span>
+                      <span className="text-red-200">{potentialRepercussions}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Problem */}
             {evidence?.problem && (
               <EvidenceSection

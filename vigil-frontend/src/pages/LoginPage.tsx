@@ -37,7 +37,7 @@ export const LoginPage: React.FC = () => {
       {/* Background subtle grid */}
       <div className="absolute inset-0 opacity-[0.015] pointer-events-none"
         style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 40px), repeating-linear-gradient(90deg, #fff 0px, #fff 1px, transparent 1px, transparent 40px)'
+          backgroundImage: 'none'
         }}
       />
 

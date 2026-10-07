@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useLocation, Link } from 'react-router-dom';
 import {
   ChevronLeft, Cpu, Shield, GitCommit, FileText, Send,
-  RotateCcw, CheckCircle, AlertTriangle, Loader2, Clock
+  RotateCcw, CheckCircle, AlertTriangle, Loader2, Clock, ShieldAlert, Zap
 } from 'lucide-react';
 import { pullRequestService } from '../services/pullRequestService';
 import { repositoryService } from '../services/repositoryService';
@@ -24,8 +24,9 @@ import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Card, CardContent } from '../components/common/Card';
 import { cn } from '../lib/utils';
+import { SecurityAssumptionPanel } from '../components/securityAssumptions/SecurityAssumptionPanel';
 
-type TabId = 'findings' | 'files' | 'commits' | 'review';
+type TabId = 'findings' | 'files' | 'commits' | 'review' | 'assumptions';
 
 type AnalysisPhase = 'idle' | 'triggering' | 'polling' | 'completed' | 'failed';
 
@@ -60,6 +61,9 @@ function getAnalysisPhaseBadge(phase: AnalysisPhase, analysis: AnalysisRead | nu
 
 export const PRDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const routeEvidenceAnalysisId = (location.state as { evidenceAnalysisId?: unknown } | null)?.evidenceAnalysisId;
+  const evidenceAnalysisId = typeof routeEvidenceAnalysisId === 'string' ? routeEvidenceAnalysisId : null;
 
   // Core data
   const [pr, setPr] = useState<PullRequestRead | null>(null);
@@ -87,7 +91,7 @@ export const PRDetailPage: React.FC = () => {
   const pollingRef = useRef(false);
 
   // UI
-  const [activeTab, setActiveTab] = useState<TabId>('findings');
+  const [activeTab, setActiveTab] = useState<TabId>(() => evidenceAnalysisId ? 'assumptions' : 'findings');
   const [showPublishModal, setShowPublishModal] = useState(false);
 
   // Load findings, review after analysis or on mount
@@ -234,6 +238,7 @@ if (finalStatus === 'COMPLETED') {
     { id: 'files', label: 'Changed Files', icon: <FileText className="w-3.5 h-3.5" /> },
     { id: 'commits', label: 'Commits', icon: <GitCommit className="w-3.5 h-3.5" /> },
     { id: 'review', label: 'Review Actions', icon: <FileText className="w-3.5 h-3.5" /> },
+    { id: 'assumptions', label: 'Security Assumptions', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
   ];
 
   const isAnalyzing = analysisPhase === 'triggering' || analysisPhase === 'polling';
@@ -412,6 +417,45 @@ if (finalStatus === 'COMPLETED') {
                 onRetry={() => id && loadFindingsAndReview(id)}
               />
             )}
+
+            {/* Prompt Injection Security Alert Banner */}
+            {!findingsLoading && findings.some(f => f.category.toUpperCase() === 'PROMPT_INJECTION') && (
+              <div className="flex items-start gap-3 p-4 bg-red-950/40 border border-red-700/60 rounded-xl animate-pulse-once">
+                <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-red-300 mb-1">
+                    ⚠ Prompt Injection Attempt Detected &amp; Blocked
+                  </p>
+                  <p className="text-xs text-red-300/80 leading-relaxed">
+                    VIGIL's security detector identified instruction-hijacking content in this repository's code,
+                    comments, or PR description. This content attempted to override the AI reviewer's behavior.
+                    The attempt was blocked — findings below reflect an unbiased security review.
+                  </p>
+                </div>
+                <span className="shrink-0 text-[10px] font-mono px-2 py-1 rounded bg-red-900/50 text-red-300 border border-red-700/50 uppercase tracking-wider">
+                  SECURITY DETECTOR
+                </span>
+              </div>
+            )}
+
+            {/* Complexity Optimization Alert Banner */}
+            {!findingsLoading && findings.some(f => f.category.toUpperCase() === 'COMPLEXITY') && (
+              <div className="flex items-start gap-3 p-4 bg-amber-950/40 border border-amber-700/60 rounded-xl">
+                <Zap className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-amber-300 mb-1">
+                    ⚡ Code Complexity &amp; Performance Optimization Opportunity
+                  </p>
+                  <p className="text-xs text-amber-300/80 leading-relaxed">
+                    VIGIL identified unnecessary time/space complexity introduced in this PR. Review the proposed O(n) algorithmic optimizations below to improve execution efficiency.
+                  </p>
+                </div>
+                <span className="shrink-0 text-[10px] font-mono px-2 py-1 rounded bg-amber-900/50 text-amber-300 border border-amber-700/50 uppercase tracking-wider">
+                  COMPLEXITY ENGINE
+                </span>
+              </div>
+            )}
+
             {!findingsLoading && !findingsError && findings.length === 0 && (
               <EmptyState
                 icon={<Shield className="w-6 h-6" />}
@@ -476,6 +520,16 @@ if (finalStatus === 'COMPLETED') {
               </>
             )}
           </div>
+        )}
+
+        {activeTab === 'assumptions' && (
+          evidenceAnalysisId || currentAnalysis
+            ? <SecurityAssumptionPanel analysisId={evidenceAnalysisId || currentAnalysis!.id} />
+            : <EmptyState
+                icon={<ShieldAlert className="w-6 h-6" />}
+                title="Run an analysis first"
+                description="Security assumptions are extracted and compared as part of a PR analysis. No analysis-scoped assumption data is available yet."
+              />
         )}
 
         {/* Review Preview tab */}

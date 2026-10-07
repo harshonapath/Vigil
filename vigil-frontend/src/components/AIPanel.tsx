@@ -23,9 +23,9 @@ const CTX: Record<string, { title: string; titleHi: string; body: string; bodyHi
   '/pull-requests': {
     title: 'Pull request analysis',
     titleHi: 'Pull request विश्लेषण',
-    body: "PR #47 introduces a hardcoded JWT secret — this pattern can allow token forgery. I recommend reviewing before approving.",
-    bodyHi: "PR #47 में JWT secret hardcoded है — इससे token forgery हो सकती है।",
-    suggestions: ['Explain PR #47 risk', 'Which PRs are safe?', 'What needs human review?'],
+    body: "PR #47 introduces a hardcoded JWT secret — this pattern can allow token forgery. VIGIL also scans every PR for prompt injection attempts that could manipulate the AI reviewer.",
+    bodyHi: "PR #47 में JWT secret hardcoded है — इससे token forgery हो सकती है। VIGIL prompt injection attempts भी detect करता है।",
+    suggestions: ['Explain PR #47 risk', 'Which PRs are safe?', 'What is prompt injection?'],
     suggestionsHi: ['PR #47 का खतरा बताएं'],
   },
   '/findings': {
@@ -67,6 +67,14 @@ const CTX: Record<string, { title: string; titleHi: string; body: string; bodyHi
     bodyHi: "यहाँ से GitHub organizations जोड़ें, AI depth सेट करें और notifications configure करें।",
     suggestions: ['How to add an org?', 'What does deep mode do?', 'Manage team access'],
     suggestionsHi: ['नया org कैसे जोड़ें?'],
+  },
+  '/prompt-injection': {
+    title: 'Prompt Injection Defense',
+    titleHi: 'Prompt Injection सुरक्षा',
+    body: "VIGIL's security detector scans every diff, commit message, and PR description for instruction-hijacking attempts before they reach the AI reviewer. Detected injection attempts are blocked and surfaced as HIGH severity findings.",
+    bodyHi: "VIGIL हर diff, commit message और PR description को scan करता है ताकि AI reviewer को manipulate न किया जा सके।",
+    suggestions: ['What is prompt injection?', 'How does VIGIL block it?', 'View injection findings'],
+    suggestionsHi: ['Prompt injection क्या है?', 'VIGIL इसे कैसे रोकता है?'],
   },
 };
 

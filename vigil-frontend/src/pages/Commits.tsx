@@ -1,207 +1,431 @@
-import { useState } from 'react';
-import { GitCommitHorizontal, AlertTriangle, CheckCircle, FileCode, Plus, Minus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  GitCommitHorizontal,
+  AlertTriangle,
+  CheckCircle,
+  GitPullRequest,
+  ArrowRight,
+  Loader2,
+  RotateCcw,
+  GitFork,
+} from 'lucide-react';
 import { OrbXS } from '../components/AIOrb';
 import PageHeader from '../components/PageHeader';
+import { useGitHub } from '../contexts/GitHubContext';
+import { repositoryService } from '../services/repositoryService';
+import { pullRequestService } from '../services/pullRequestService';
+import { commitService } from '../services/commitService';
+import type { RepositoryRead, CommitAnalysisRead } from '../types';
 
-const commits = [
-  {
-    hash: 'a3f9c12', fullHash: 'a3f9c128b4d21e7f903c4a18b5d9e2f041c7a8b3',
-    message: 'fix: sanitize user input in search endpoint',
-    author: 'Priya Sharma', email: 'priya@acme-corp.com',
-    repo: 'api-gateway', branch: 'main', time: '1h ago', date: 'Sep 25, 2026',
-    flagged: true, flags: ['Input validation change'],
-    additions: 12, deletions: 3, files: 2,
-    aiSummary: 'This commit adds input sanitization to the search endpoint. The change correctly uses html.EscapeString for output encoding. Review confirms no injection vectors introduced.',
-    diff: `@@ -38,6 +38,18 @@ func SearchHandler(w http.ResponseWriter, r *http.Request) {
- 	query := r.URL.Query().Get("q")
--	results := db.Search(query)
-+	sanitized := html.EscapeString(query)
-+	if len(sanitized) > 100 {
-+		http.Error(w, "query too long", 400)
-+		return
-+	}
-+	results := db.Search(sanitized)
- 	json.NewEncoder(w).Encode(results)`,
-  },
-  {
-    hash: 'b7d2e45', fullHash: 'b7d2e4578c3f91a0d2b6e8f4c1a7b9e0f23d5c6a',
-    message: 'chore: bump dependencies',
-    author: 'Rohan Mehta', email: 'rohan@acme-corp.com',
-    repo: 'web-frontend', branch: 'main', time: '3h ago', date: 'Sep 25, 2026',
-    flagged: false, flags: [],
-    additions: 5, deletions: 5, files: 2,
-    aiSummary: 'Routine dependency update. No security-sensitive packages changed. Lockfile updated to match.',
-    diff: `@@ -18,6 +18,6 @@
--    "axios": "^1.4.0",
-+    "axios": "^1.6.2",
-     "react": "^19.0.0"`,
-  },
-  {
-    hash: 'c1a8f67', fullHash: 'c1a8f67d2e9b3a4c5f1e8d7c0b2a4f6e8d9c1b3a',
-    message: 'feat: add rate limiting to auth routes',
-    author: 'Anita Bose', email: 'anita@acme-corp.com',
-    repo: 'auth-service', branch: 'main', time: '5h ago', date: 'Sep 25, 2026',
-    flagged: true, flags: ['Auth route modification', 'Middleware change'],
-    additions: 34, deletions: 2, files: 3,
-    aiSummary: 'Rate limiting added to /auth/login and /auth/refresh. Implementation uses an in-memory sliding window counter — note this will not work correctly in multi-instance deployments without a shared Redis store.',
-    diff: `@@ -12,4 +12,14 @@ func AuthRoutes(r *gin.Engine) {
- 	auth := r.Group("/auth")
-+	auth.Use(rateLimiter.Limit(10, time.Minute))
- 	auth.POST("/login", LoginHandler)
- 	auth.POST("/refresh", RefreshHandler)`,
-  },
-];
+export interface CommitDisplay {
+  hash: string;
+  fullHash: string;
+  message: string;
+  author: string;
+  email: string;
+  repo: string;
+  branch: string;
+  time: string;
+  date: string;
+  pr: number;
+  prInternalId: string;
+  prTitle: string;
+  file: string;
+  diff: string;
+}
 
 export default function Commits() {
-  const [selected, setSelected] = useState(commits[0]);
+  const navigate = useNavigate();
+  const { installationId } = useGitHub();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [commits, setCommits] = useState<CommitDisplay[]>([]);
+  const [selected, setSelected] = useState<CommitDisplay | null>(null);
+  const [activeRepo, setActiveRepo] = useState<RepositoryRead | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  // Commit Analysis State
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const [commitAnalysis, setCommitAnalysis] = useState<CommitAnalysisRead | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCommits = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const repoRes = await repositoryService.getMyRepositories(1, 10, installationId);
+        if (cancelled) return;
+
+        if (repoRes.items.length === 0) {
+          setCommits([]);
+          setSelected(null);
+          setActiveRepo(null);
+          return;
+        }
+
+        const repo = repoRes.items[0];
+        setActiveRepo(repo);
+
+        const prRes = await pullRequestService.getPullRequestsForRepository(repo.id, 1, 10);
+        if (cancelled) return;
+
+        const allCommits: CommitDisplay[] = [];
+
+        for (const pr of prRes.items) {
+          try {
+            const commitRes = await commitService.getCommitsForPR(pr.id, 1, 20);
+            for (const c of commitRes.items) {
+              const dt = new Date(c.committed_at || c.created_at);
+              allCommits.push({
+                hash: c.sha.slice(0, 7),
+                fullHash: c.sha,
+                message: c.message,
+                author: c.author_login || c.author_name || 'Contributor',
+                email: c.author_email || '',
+                repo: repo.name,
+                branch: pr.target_branch || 'main',
+                time: dt.toLocaleDateString(),
+                date: dt.toLocaleString(),
+                pr: pr.pr_number,
+                prInternalId: pr.id,
+                prTitle: pr.title,
+                file: 'Synchronized files',
+                diff: `Commit: ${c.sha}\nAuthor: ${c.author_name || c.author_login} <${c.author_email}>\nDate:   ${c.committed_at || c.created_at}\n\n    ${c.message}`,
+              });
+            }
+          } catch {
+            // continue loading other PR commits
+          }
+        }
+
+        if (cancelled) return;
+        setCommits(allCommits);
+        if (allCommits.length > 0) {
+          setSelected(allCommits[0]);
+        } else {
+          setSelected(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load commits');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadCommits();
+    return () => {
+      cancelled = true;
+    };
+  }, [installationId, refreshTick]);
+
+  // Load analysis whenever selected commit changes
+  useEffect(() => {
+    if (!selected) {
+      setCommitAnalysis(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchAnalysis = async () => {
+      setAnalysisLoading(true);
+      setAnalysisError('');
+      try {
+        const res = await commitService.getCommitAnalysisBySha(selected.fullHash);
+        if (!cancelled) {
+          setCommitAnalysis(res);
+        }
+      } catch {
+        if (!cancelled) {
+          setCommitAnalysis(null);
+        }
+      } finally {
+        if (!cancelled) setAnalysisLoading(false);
+      }
+    };
+
+    void fetchAnalysis();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.fullHash]);
+
+  const handleRunAnalysis = async () => {
+    if (!selected) return;
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    try {
+      const res = await commitService.triggerCommitAnalysis(selected.fullHash);
+      setCommitAnalysis(res);
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : 'Failed to trigger commit completeness analysis');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
 
   return (
     <div className="stage3-page" style={{ padding: '32px 36px', maxWidth: '1200px' }}>
       <PageHeader
         title="Commit Analysis"
-        subtitle="Security-focused review of recent commits"
+        subtitle={
+          activeRepo
+            ? `Completeness and security review of synchronized commits in ${activeRepo.full_name}`
+            : 'Security-focused review of recent commits'
+        }
+        actions={
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setRefreshTick(t => t + 1)}
+            title="Refresh commits"
+          >
+            <RotateCcw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        }
       />
 
-      <div className="stage3-master-detail" style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: '20px' }}>
-        {/* Commit list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {commits.map(c => (
-            <div
-              key={c.hash}
-              onClick={() => setSelected(c)}
-              style={{
-                padding: '14px 16px',
-                background: selected.hash === c.hash ? 'var(--secondary)' : 'var(--card)',
-                border: `1px solid ${selected.hash === c.hash ? 'color-mix(in srgb, var(--primary) 30%, var(--border))' : 'var(--border)'}`,
-                borderLeft: `2px solid ${selected.hash === c.hash ? 'var(--primary)' : c.flagged ? 'var(--severity-medium)' : 'transparent'}`,
-                borderRadius: '8px', cursor: 'pointer', transition: 'all 150ms',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <GitCommitHorizontal size={12} style={{ color: c.flagged ? 'var(--severity-medium)' : 'var(--muted-foreground)' }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--primary)' }}>{c.hash}</span>
-                {c.flagged && <AlertTriangle size={11} style={{ color: 'var(--severity-medium)', marginLeft: 'auto' }} />}
-                {!c.flagged && <CheckCircle size={11} style={{ color: 'var(--accent)', marginLeft: 'auto' }} />}
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted-foreground)' }}>
+          <Loader2 size={24} className="animate-spin" style={{ display: 'inline-block', marginBottom: 12 }} />
+          <div>Loading synchronized commits from backend…</div>
+        </div>
+      )}
+
+      {error && !loading && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card)', border: '1px solid var(--status-critical)', borderRadius: 8, marginBottom: 20 }}>
+          <AlertTriangle size={24} style={{ color: 'var(--status-critical)', marginBottom: 8, display: 'inline-block' }} />
+          <div style={{ fontWeight: 600, color: 'var(--foreground)', marginBottom: 6 }}>{error}</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRefreshTick(t => t + 1)}>
+            <RotateCcw size={12} /> Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && commits.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <GitFork size={36} style={{ color: 'var(--muted-foreground)', marginBottom: 12 }} />
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px' }}>
+            No commits found
+          </h3>
+          <p style={{ color: 'var(--muted-foreground)', fontSize: '0.85rem', margin: '0 0 18px' }}>
+            Commits associated with pull requests will automatically appear once synchronized.
+          </p>
+          <button className="btn btn-primary" onClick={() => navigate('/repositories')}>
+            View Repositories
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && commits.length > 0 && selected && (
+        <div className="stage3-master-detail" style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: '20px' }}>
+          {/* Commit list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {commits.map(c => (
+              <div
+                key={c.fullHash}
+                onClick={() => setSelected(c)}
+                style={{
+                  padding: '14px 16px',
+                  background: selected.fullHash === c.fullHash ? 'var(--secondary)' : 'var(--card)',
+                  border: `1px solid ${selected.fullHash === c.fullHash ? 'color-mix(in srgb, var(--primary) 30%, var(--border))' : 'var(--border)'}`,
+                  borderLeft: `2px solid ${selected.fullHash === c.fullHash ? 'var(--primary)' : 'transparent'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 150ms',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                  <GitCommitHorizontal size={12} style={{ color: 'var(--muted-foreground)' }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--primary)' }}>
+                    {c.hash}
+                  </span>
+                  <CheckCircle size={11} style={{ color: 'var(--accent)', marginLeft: 'auto' }} />
+                </div>
+                <div style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--foreground)', marginBottom: '4px', lineHeight: '1.4' }}>
+                  {c.message}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>
+                  {c.repo} · {c.author} · {c.time}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: '0.7rem' }}>
+                  <span style={{ color: 'var(--accent)' }}>PR #{c.pr}</span>
+                  <span style={{ color: 'var(--muted-foreground)' }}>Synced</span>
+                </div>
               </div>
-              <div style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--foreground)', marginBottom: '4px', lineHeight: '1.4' }}>{c.message}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{c.repo} · {c.author} · {c.time}</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: '0.7rem' }}>
-                <span style={{ color: c.flagged ? 'var(--severity-medium)' : 'var(--accent)' }}>
-                  {c.flagged ? `Concern introduced · ${c.flags.length} signal${c.flags.length === 1 ? '' : 's'}` : 'No findings'}
+            ))}
+          </div>
+
+          {/* Commit detail panel */}
+          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ padding: '24px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--primary)', background: 'color-mix(in srgb, var(--primary) 10%, transparent)', padding: '2px 8px', borderRadius: '4px' }}>
+                  {selected.hash}
                 </span>
-                <span style={{ color: 'var(--muted-foreground)' }}>Analysis complete</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>
+                  {selected.repo} · {selected.branch}
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>
+                  {selected.date}
+                </span>
               </div>
-              {c.flags.length > 0 && (
-                <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {c.flags.map(f => (
-                    <span key={f} style={{
-                      fontSize: '0.7rem', padding: '2px 6px',
-                      background: 'color-mix(in srgb, var(--severity-medium) 12%, transparent)',
-                      color: 'var(--severity-medium)',
-                      border: '1px solid color-mix(in srgb, var(--severity-medium) 30%, transparent)',
-                      borderRadius: '4px',
-                    }}>{f}</span>
-                  ))}
+              <h2 style={{ fontSize: '1.05rem', fontWeight: '600', color: 'var(--foreground)', margin: '0 0 10px', lineHeight: '1.4' }}>
+                {selected.message}
+              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--secondary-foreground)' }}>
+                <span>{selected.author}</span>
+                {selected.email && <span style={{ color: 'var(--muted-foreground)' }}>&lt;{selected.email}&gt;</span>}
+              </div>
+              <div style={{ display: 'flex', gap: '16px', marginTop: '12px', fontSize: '0.75rem', color: 'var(--muted-foreground)', alignItems: 'center' }}>
+                <span>Associated PR: #{selected.pr}</span>
+                <span style={{ color: 'var(--accent)' }}>{selected.prTitle}</span>
+                <span style={{ marginLeft: 'auto', fontStyle: 'italic', color: 'var(--muted-foreground)' }}>
+                  Diff stats unavailable
+                </span>
+              </div>
+            </div>
+
+            {/* Commit Completeness Analysis Section */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <OrbXS size={12} variant="active" />
+                  <span style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ai)' }}>
+                    Completeness & Security Analysis
+                  </span>
+                </div>
+
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleRunAnalysis}
+                  disabled={analysisLoading}
+                >
+                  {analysisLoading ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" /> Analyzing…
+                    </>
+                  ) : commitAnalysis ? (
+                    'Re-analyze Commit'
+                  ) : (
+                    'Run Completeness Analysis'
+                  )}
+                </button>
+              </div>
+
+              {analysisError && (
+                <div style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginBottom: 10 }}>
+                  {analysisError}
+                </div>
+              )}
+
+              {commitAnalysis ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)' }}>Overall Status:</span>
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        background:
+                          commitAnalysis.overall_status === 'NO_SIGNIFICANT_GAPS'
+                            ? 'rgba(16, 185, 129, 0.15)'
+                            : commitAnalysis.overall_status === 'NEEDS_REVIEW'
+                            ? 'rgba(245, 158, 11, 0.15)'
+                            : 'rgba(148, 163, 184, 0.15)',
+                        color:
+                          commitAnalysis.overall_status === 'NO_SIGNIFICANT_GAPS'
+                            ? '#34d399'
+                            : commitAnalysis.overall_status === 'NEEDS_REVIEW'
+                            ? '#fbbf24'
+                            : '#94a3b8',
+                      }}
+                    >
+                      {commitAnalysis.overall_status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+
+                  {commitAnalysis.summary && (
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--foreground)', lineHeight: '1.6' }}>
+                      {commitAnalysis.summary}
+                    </p>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: 4 }}>
+                    {commitAnalysis.implementation_notes && (
+                      <div style={{ padding: '10px 12px', background: 'var(--secondary)', borderRadius: '6px', fontSize: '0.78rem' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--muted-foreground)', marginBottom: 4 }}>Implementation Notes</div>
+                        <div style={{ color: 'var(--foreground)', lineHeight: 1.5 }}>{commitAnalysis.implementation_notes}</div>
+                      </div>
+                    )}
+                    {commitAnalysis.testing_notes && (
+                      <div style={{ padding: '10px 12px', background: 'var(--secondary)', borderRadius: '6px', fontSize: '0.78rem' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--muted-foreground)', marginBottom: 4 }}>Testing Assessment</div>
+                        <div style={{ color: 'var(--foreground)', lineHeight: 1.5 }}>{commitAnalysis.testing_notes}</div>
+                      </div>
+                    )}
+                    {commitAnalysis.error_handling_notes && (
+                      <div style={{ padding: '10px 12px', background: 'var(--secondary)', borderRadius: '6px', fontSize: '0.78rem' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--muted-foreground)', marginBottom: 4 }}>Error Handling</div>
+                        <div style={{ color: 'var(--foreground)', lineHeight: 1.5 }}>{commitAnalysis.error_handling_notes}</div>
+                      </div>
+                    )}
+                    {commitAnalysis.documentation_notes && (
+                      <div style={{ padding: '10px 12px', background: 'var(--secondary)', borderRadius: '6px', fontSize: '0.78rem' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--muted-foreground)', marginBottom: 4 }}>Documentation</div>
+                        <div style={{ color: 'var(--foreground)', lineHeight: 1.5 }}>{commitAnalysis.documentation_notes}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ color: 'var(--muted-foreground)', fontSize: '0.82rem', lineHeight: '1.6' }}>
+                  No automated completeness analysis has been stored for commit {selected.hash} yet. Click "Run Completeness Analysis" to analyze this commit's implementation, testing coverage, and error handling.
                 </div>
               )}
             </div>
-          ))}
-        </div>
 
-        {/* Commit detail */}
-        <div style={{
-          background: 'var(--card)', border: '1px solid var(--border)',
-          borderRadius: '8px', overflow: 'hidden',
-        }}>
-          {/* Header */}
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--primary)' }}>{selected.fullHash.slice(0, 16)}...</span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{selected.repo} · {selected.date}</span>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--foreground)', margin: '0 0 8px' }}>{selected.message}</h3>
-            <div style={{ display: 'flex', gap: '14px', fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>
-              <span>{selected.author} &lt;{selected.email}&gt;</span>
-              <span style={{ color: 'var(--accent)' }}><Plus size={11} style={{ display: 'inline' }} />{selected.additions}</span>
-              <span style={{ color: 'var(--severity-critical)' }}><Minus size={11} style={{ display: 'inline' }} />{selected.deletions}</span>
-              <span><FileCode size={11} style={{ display: 'inline', marginRight: '3px' }} />{selected.files} files</span>
-            </div>
-          </div>
-
-          {/* AI analysis */}
-          <div style={{
-            padding: '14px 24px', borderBottom: '1px solid var(--border)',
-            background: selected.flagged
-              ? 'color-mix(in srgb, var(--severity-medium) 5%, transparent)'
-              : 'color-mix(in srgb, var(--accent) 5%, transparent)',
-            display: 'flex', gap: '10px', alignItems: 'flex-start',
-          }}>
-            <OrbXS size={14} variant="active" style={{ marginTop: '1px', flexShrink: 0 }} />
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-                AI Analysis
-              </div>
-              <p style={{ fontSize: '0.875rem', color: 'var(--secondary-foreground)', lineHeight: '1.6', margin: 0 }}>
-                {selected.aiSummary}
-              </p>
-            </div>
-          </div>
-
-          {/* Security flags */}
-          {selected.flags.length > 0 && (
-            <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)' }}>
+            {/* Commit Header & Metadata */}
+            <div style={{ padding: '20px 24px' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: '10px' }}>
-                Security Signals
+                Commit Information
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {selected.flags.map(f => (
-                  <div key={f} style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '8px 12px',
-                    background: 'color-mix(in srgb, var(--severity-medium) 8%, var(--secondary))',
-                    border: '1px solid color-mix(in srgb, var(--severity-medium) 25%, transparent)',
-                    borderRadius: '6px',
-                  }}>
-                    <AlertTriangle size={12} style={{ color: 'var(--severity-medium)' }} />
-                    <span style={{ fontSize: '0.875rem', color: 'var(--foreground)' }}>{f}</span>
-                  </div>
-                ))}
+              <div
+                className="commit-diff"
+                style={{
+                  background: 'var(--code-background)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  overflow: 'auto',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.8rem',
+                  lineHeight: '1.6',
+                  padding: '16px',
+                  color: 'var(--foreground)',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {selected.diff}
               </div>
             </div>
-          )}
 
-          {/* Diff */}
-          <div style={{ padding: '20px 24px' }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: '10px' }}>
-              Code Changes
-            </div>
-            <div className="commit-diff" style={{
-              background: 'var(--code-background)', border: '1px solid var(--border)',
-              borderRadius: '8px', overflow: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.8rem',
-              lineHeight: '1.6',
-            }}>
-              {selected.diff.split('\n').map((line, i) => {
-                const isAdd = line.startsWith('+') && !line.startsWith('+++');
-                const isDel = line.startsWith('-') && !line.startsWith('---');
-                const isHunk = line.startsWith('@@');
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '1px 16px',
-                      background: isAdd ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : isDel ? 'color-mix(in srgb, var(--severity-critical) 10%, transparent)' : isHunk ? 'color-mix(in srgb, var(--primary) 8%, transparent)' : 'transparent',
-                      color: isAdd ? 'var(--accent)' : isDel ? 'var(--severity-critical)' : isHunk ? 'var(--primary)' : 'var(--secondary-foreground)',
-                      whiteSpace: 'pre',
-                    }}
-                  >
-                    {line}
-                  </div>
-                );
-              })}
+            {/* Related workflow actions */}
+            <div className="commit-related-actions" style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', gap: '12px' }}>
+              <button className="btn btn-primary" onClick={() => navigate(`/pull-requests/${selected.prInternalId}`)}>
+                <GitPullRequest size={13} /> View Pull Request #{selected.pr} <ArrowRight size={12} />
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

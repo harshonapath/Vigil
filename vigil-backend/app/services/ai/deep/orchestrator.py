@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+from app.core.config import settings
 from app.core.logging_config import logger
 from app.services.ai.context.schemas import ReviewContext
 from app.services.ai.deep.investigator import DeepInvestigator
@@ -35,7 +36,7 @@ Review the plan targets and code changes above. You MUST return a structured JSO
   "summary": "<Broad review summary assessment>",
   "candidates": [
     {
-      "category": "Security" | "Logic" | "Error Handling" | "Testing" | "Maintainability" | "Code Quality" | "Documentation" | "Performance",
+      "category": "Security" | "Logic" | "Error Handling" | "Testing" | "Maintainability" | "Code Quality" | "Documentation" | "Performance" | "Complexity",
       "severity_estimate": "info" | "low" | "medium" | "high" | "critical",
       "title": "<Candidate finding headline hypothesis>",
       "file": "<relative file path from diff>",
@@ -137,8 +138,38 @@ class DeepReviewOrchestrator:
 
     async def review(self, context: ReviewContext) -> ReviewResult:
         """Executes full Deep Intelligence Engine review pipeline."""
+        from app.services.ai.security.prompt_injection import prompt_injection_detector
+        from app.services.ai.review.schemas import FindingConfidence
+
         model_calls = 0
         warnings: List[str] = []
+
+        # 0. Run prompt injection scan on all untrusted context BEFORE any LLM call
+        injection_results = prompt_injection_detector.scan_context(context)
+        injection_findings: List[ReviewFinding] = []
+        for inj in injection_results:
+            injection_finding = ReviewFinding(
+                category=FindingCategory.PROMPT_INJECTION,
+                severity=FindingSeverity.HIGH,
+                confidence=FindingConfidence.HIGH,
+                title="Prompt Injection Detected",
+                file=inj.file_path or "untrusted_input",
+                line=inj.line_number,
+                problem=(
+                    "Instruction-like content was detected inside repository-derived content. "
+                    "Repository content is treated as untrusted data and must not be followed as an instruction by the AI reviewer."
+                ),
+                why=f"{inj.reason}. Matched indicator: '{inj.matched_indicators[0] if inj.matched_indicators else ''}'",
+                evidence=inj.evidence or (inj.matched_indicators[0] if inj.matched_indicators else None),
+                suggestion="Remove instruction-hijacking directives, pseudo-system prompts, or prompt injection attempts from repository content.",
+                source="SECURITY_DETECTOR",
+                is_grounded=True,
+            )
+            injection_findings.append(injection_finding)
+            warnings.append(
+                f"SECURITY: Prompt injection attempt detected in '{inj.file_path or 'untrusted_input'}' "
+                f"at line {inj.line_number}: {inj.reason}"
+            )
 
         # 1. PLAN PASS
         plan = await self.planner.plan(context)
@@ -176,6 +207,35 @@ class DeepReviewOrchestrator:
                 dropped_count += 1
                 warnings.append(f"Candidate '{candidate.title}' on '{candidate.file}' dropped: {inv_summary}")
 
+        # Supplement deep review with static complexity analysis findings
+        from app.services.ai.complexity import complexity_analyzer
+
+        static_complexity_findings = complexity_analyzer.scan_context(context)
+        for cf in static_complexity_findings:
+            if not any(f.file == cf.file and f.line == cf.line and f.category == FindingCategory.COMPLEXITY for f in final_findings):
+                final_findings.append(cf)
+
+        # Supplement deep review with static edge-case analysis findings
+        from app.services.ai.edge_cases import edge_case_analyzer
+
+        static_edge_case_findings = edge_case_analyzer.scan_context(context)
+        for ef in static_edge_case_findings:
+            if not any(f.file == ef.file and f.line == ef.line and (f.category == FindingCategory.EDGE_CASE or f.title == ef.title) for f in final_findings):
+                final_findings.append(ef)
+
+        # Supplement deep review with static security assumption analysis findings
+        from app.services.ai.security_assumptions import security_assumption_analyzer
+
+        static_assumption_findings = security_assumption_analyzer.scan_context(context)
+        for af in static_assumption_findings:
+            if not any(
+                f.file == af.file
+                and (f.line == af.line or not f.line)
+                and (f.category == FindingCategory.SECURITY_ASSUMPTION or f.title == af.title)
+                for f in final_findings
+            ):
+                final_findings.append(af)
+
         # Compute coverage metrics
         examined_files = [f.file_path for f in context.changed_files]
         all_cats = [c.value for c in FindingCategory]
@@ -204,18 +264,25 @@ class DeepReviewOrchestrator:
         }
 
         # Build narrative summary
+        injection_note = (
+            f"\n- ⚠ {len(injection_findings)} prompt injection attempt(s) detected and blocked by security detector."
+            if injection_findings else ""
+        )
         summary = (
             f"Deep Intelligence Code Review ({plan.strategy} strategy):\n"
             f"- Analyzed {len(examined_files)} changed files and generated {len(candidates)} candidate hypotheses.\n"
             f"- Deeply investigated {investigated_count} high-priority targets; validated {len(final_findings)} evidence-grounded findings.\n"
             f"- Strategy: {plan.summary}"
+            f"{injection_note}"
         )
+
+        all_findings = injection_findings + final_findings
 
         return ReviewResult(
             summary=summary,
-            findings=final_findings,
-            model="Qwen/Qwen3-8B",
-            status=ReviewStatus.SUCCESS if not warnings or final_findings else ReviewStatus.WARNING,
+            findings=all_findings,
+            model=settings.AI_MODEL,
+            status=ReviewStatus.SUCCESS if not warnings or all_findings else ReviewStatus.WARNING,
             warnings=warnings,
             validation_metadata=meta,
         )

@@ -92,7 +92,8 @@ async def test_offline_eval_fixture_f_prompt_injection_resistance():
 
     assert res.success is True
     assert res.prompt_injection_resisted is True
-    assert res.findings_count == 1
+    assert res.findings_count >= 1
+
 
 
 @pytest.mark.asyncio

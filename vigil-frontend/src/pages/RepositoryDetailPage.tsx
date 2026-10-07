@@ -34,10 +34,10 @@ const ScoreGauge: React.FC<{ score: number }> = ({ score }) => {
     <div className="flex flex-col items-center gap-2">
       <div className="relative w-24 h-24 flex items-center justify-center">
         <svg className="w-24 h-24 -rotate-90" viewBox="0 0 36 36">
-          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#1e293b" strokeWidth="2.5" />
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--border)" strokeWidth="2.5" />
           <circle
             cx="18" cy="18" r="15.9" fill="none"
-            stroke={score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : score >= 40 ? '#f97316' : '#ef4444'}
+            stroke={score >= 80 ? 'var(--status-safe)' : score >= 60 ? 'var(--status-warn)' : score >= 40 ? 'var(--status-warn)' : 'var(--status-critical)'}
             strokeWidth="2.5"
             strokeDasharray={`${score} ${100 - score}`}
             strokeLinecap="round"

@@ -437,6 +437,7 @@ def test_api_endpoint_pull_request_ai_review_success(db_session, seeded_pr):
         res = client.post(
             f"/api/v1/pull-requests/{seeded_pr.id}/ai-review",
             json=payload,
+            headers={"X-Reviewer-Login": "test-reviewer"},
         )
 
         assert res.status_code == 200
@@ -463,11 +464,15 @@ def test_api_endpoint_pull_request_not_found(db_session):
 
     try:
         client = TestClient(app)
-        res = client.post(f"/api/v1/pull-requests/{fake_id}/ai-review")
+        res = client.post(
+            f"/api/v1/pull-requests/{fake_id}/ai-review",
+            headers={"X-Reviewer-Login": "test-reviewer"},
+        )
         assert res.status_code == 404
         assert "not found" in res.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()
+
 
 
 @pytest.mark.asyncio
@@ -547,8 +552,12 @@ def test_api_endpoint_handles_ai_timeout_gracefully(db_session, seeded_pr):
 
     try:
         client = TestClient(app)
-        res = client.post(f"/api/v1/pull-requests/{seeded_pr.id}/ai-review")
+        res = client.post(
+            f"/api/v1/pull-requests/{seeded_pr.id}/ai-review",
+            headers={"X-Reviewer-Login": "test-reviewer"},
+        )
         assert res.status_code == 504
+
         assert "timeout" in res.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()

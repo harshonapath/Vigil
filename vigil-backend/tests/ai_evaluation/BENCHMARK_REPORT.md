@@ -2,8 +2,8 @@
 
 **Evaluation Timestamp:** `2026-09-26 20:56:32 UTC`
 **Evaluator Role:** Member 3 — AI Code Review Engineer
-**Model Identifier:** `Qwen/Qwen3-8B`
-**Provider:** `OpenAICompatibleProvider (HuggingFace Inference API)`
+**Model Identifier:** `gemini-3.8-flash`
+**Provider:** `OpenAICompatibleProvider (Google Gemini via generativelanguage.googleapis.com)`
 
 ---
 
@@ -56,8 +56,8 @@ This report establishes empirical performance benchmarks for VIGIL's AI Code Rev
 ## 5. Reproducibility & Execution Metadata
 
 - **Benchmark Dataset:** 16 cases (`SEC-SQLI-01` through `SAFE-REFACTOR-16`)
-- **Model:** `Qwen/Qwen3-8B`
+- **Model:** `gemini-3.8-flash`
 - **Temperature:** `0.1`
 - **Max Tokens:** `4096`
 - **Ground Truth Version:** `1.0.0`
-- **Determinism & Live Model Scope:** Offline suite executions using `MockProvider` are 100% deterministic regression validations. Live real-Qwen (`Qwen/Qwen3-8B`) executions are verified via live smoke test evidence where network latency (~7.0s-28.7s) and LLM sampling non-determinism apply.
+- **Determinism & Live Model Scope:** Offline suite executions using `MockProvider` are 100% deterministic regression validations. Live `gemini-3.8-flash` executions are verified via live smoke test evidence where network latency (~7.0s-28.7s) and LLM sampling non-determinism apply.

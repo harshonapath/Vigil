@@ -1,17 +1,28 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  GitPullRequest, Clock, CheckCircle, Loader2, AlertTriangle,
-  ArrowRight, RotateCcw, ListFilter
+  GitPullRequest,
+  Clock,
+  CheckCircle,
+  Loader2,
+  AlertTriangle,
+  ArrowRight,
+  RotateCcw,
+  ShieldCheck,
+  XCircle,
+  Ban,
+  FileCode,
 } from 'lucide-react';
 import { reviewQueueService } from '../services/reviewQueueService';
-import type { ReviewQueueItem } from '../types';
+import { findingService } from '../services/findingService';
+import type { ReviewQueueItem, FindingQueueItem } from '../types';
 import { LoadingState } from '../components/common/LoadingState';
 import { ErrorState } from '../components/common/ErrorState';
 import { EmptyState } from '../components/common/EmptyState';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Card, CardContent } from '../components/common/Card';
+import { SeverityBadge } from '../components/findings/SeverityBadge';
 import { cn } from '../lib/utils';
 
 // Derive summary counts from REAL backend data only
@@ -99,13 +110,23 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 export const ReviewQueuePage: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'findings' | 'pull_requests'>('findings');
+
+  // PR Queue items
   const [items, setItems] = useState<ReviewQueueItem[]>([]);
-  const [total, setTotal] = useState(0);
+
+  // Finding Queue items
+  const [findingQueue, setFindingQueue] = useState<FindingQueueItem[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [filter, setFilter] = useState<string>('ALL');
   const [refreshTick, setRefreshTick] = useState(0);
   const mountedRef = useRef(true);
+
+  // Verification in-flight IDs
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -114,10 +135,20 @@ export const ReviewQueuePage: React.FC = () => {
       setLoading(true);
       setError('');
       try {
-        const res = await reviewQueueService.getReviewQueue(1, 50);
+        const [prRes, fRes] = await Promise.allSettled([
+          reviewQueueService.getReviewQueue(1, 50),
+          findingService.getFindingsReviewQueue({ page: 1, pageSize: 50 }),
+        ]);
+
         if (!mountedRef.current) return;
-        setItems(res.items);
-        setTotal(res.total);
+
+        if (prRes.status === 'fulfilled') {
+          setItems(prRes.value.items);
+        }
+
+        if (fRes.status === 'fulfilled') {
+          setFindingQueue(fRes.value.items);
+        }
       } catch (err) {
         if (!mountedRef.current) return;
         setError(err instanceof Error ? err.message : 'Failed to load review queue');
@@ -127,14 +158,34 @@ export const ReviewQueuePage: React.FC = () => {
     };
 
     void run();
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, [refreshTick]);
 
   const handleRefresh = () => setRefreshTick(t => t + 1);
 
+  const handleVerify = async (
+    findingId: string,
+    decision: 'VERIFIED' | 'REJECTED' | 'DISMISSED',
+    comment?: string
+  ) => {
+    setVerifyingId(findingId);
+    setActionError('');
+    try {
+      await findingService.verifyFinding(findingId, decision, comment);
+      // Refresh the queue immediately so the item updates
+      handleRefresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Verification action failed');
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
   const summary = computeSummary(items);
 
-  const filteredItems = items.filter(item => {
+  const filteredPRItems = items.filter(item => {
     if (filter === 'ALL') return true;
     const as = (item.latest_analysis_status || '').toUpperCase();
     const rs = (item.latest_review_status || '').toUpperCase();
@@ -151,13 +202,10 @@ export const ReviewQueuePage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <GitPullRequest className="w-5 h-5 text-slate-400" />
-            <h1 className="text-xl font-bold text-slate-100">Review Queue</h1>
+            <h1 className="text-xl font-bold text-slate-100">Review Queue & Human Verification</h1>
           </div>
           <p className="text-sm text-slate-400">
-            Pull requests pending SecurePR AI analysis or human review.
-            {!loading && total > 0 && (
-              <span className="ml-1 text-slate-500">({total} in queue)</span>
-            )}
+            Audit and verify AI-generated security findings, or monitor pull requests pending analysis.
           </p>
         </div>
         <Button
@@ -171,6 +219,44 @@ export const ReviewQueuePage: React.FC = () => {
         </Button>
       </div>
 
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveTab('findings')}
+          className={cn(
+            'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2',
+            activeTab === 'findings'
+              ? 'bg-indigo-600 text-white'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          )}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          Findings Awaiting Verification ({findingQueue.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('pull_requests')}
+          className={cn(
+            'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2',
+            activeTab === 'pull_requests'
+              ? 'bg-indigo-600 text-white'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          )}
+        >
+          <GitPullRequest className="w-3.5 h-3.5" />
+          Pull Requests Queue ({items.length})
+        </button>
+      </div>
+
+      {actionError && (
+        <div className="p-3 bg-red-950/40 border border-red-800 rounded-lg text-xs text-red-300 flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError('')} className="underline text-red-200">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* States */}
       {loading && <LoadingState message="Loading review queue from backend…" />}
 
@@ -178,7 +264,106 @@ export const ReviewQueuePage: React.FC = () => {
         <ErrorState title="Failed to load review queue" message={error} onRetry={handleRefresh} />
       )}
 
-      {!loading && !error && (
+      {/* Tab: Findings Awaiting Verification */}
+      {!loading && !error && activeTab === 'findings' && (
+        <div className="space-y-4">
+          {findingQueue.length === 0 ? (
+            <EmptyState
+              icon={<ShieldCheck className="w-7 h-7 text-emerald-400" />}
+              title="Verification queue is clear"
+              description="All detected security findings have been verified, or no findings are currently pending human review."
+            />
+          ) : (
+            <div className="space-y-3">
+              {findingQueue.map(item => {
+                const inFlight = verifyingId === item.finding_id;
+
+                return (
+                  <Card key={item.finding_id} className="transition-all hover:border-slate-700/80">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <SeverityBadge severity={item.severity} />
+                            <Badge variant="outline" className="text-[10px] py-0 uppercase">
+                              {item.category}
+                            </Badge>
+                            <Badge variant="secondary" className="text-[10px] py-0 uppercase">
+                              {item.status}
+                            </Badge>
+                            <span className="text-xs text-slate-500 font-mono">
+                              {item.finding_id.slice(0, 8)}
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-semibold text-slate-100 mb-2 leading-snug">
+                            {item.title}
+                          </h4>
+
+                          <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                            {item.file_path && (
+                              <div className="flex items-center gap-1 font-mono">
+                                <FileCode className="w-3.5 h-3.5 text-slate-500" />
+                                <span>{item.file_path}</span>
+                                {item.start_line && <span>:L{item.start_line}</span>}
+                              </div>
+                            )}
+                            {item.repository_full_name && (
+                              <span>{item.repository_full_name}</span>
+                            )}
+                            {item.pull_request_number && (
+                              <span>PR #{item.pull_request_number}</span>
+                            )}
+                            <span className="text-slate-500">
+                              {formatRelativeTime(item.created_at)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            loading={inFlight}
+                            icon={<CheckCircle className="w-3.5 h-3.5" />}
+                            onClick={() => handleVerify(item.finding_id, 'VERIFIED')}
+                          >
+                            Verify
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={inFlight}
+                            icon={<XCircle className="w-3.5 h-3.5" />}
+                            onClick={() => handleVerify(item.finding_id, 'REJECTED')}
+                          >
+                            Reject
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={inFlight}
+                            icon={<Ban className="w-3.5 h-3.5" />}
+                            onClick={() =>
+                              handleVerify(item.finding_id, 'DISMISSED', 'False positive')
+                            }
+                          >
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Pull Requests Queue */}
+      {!loading && !error && activeTab === 'pull_requests' && (
         <>
           {/* Summary stats — all derived from real data */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -219,22 +404,8 @@ export const ReviewQueuePage: React.FC = () => {
             />
           </div>
 
-          {/* Filter hint */}
-          {filter !== 'ALL' && (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <ListFilter className="w-3.5 h-3.5" />
-              <span>Filtering by: <span className="text-slate-200 font-medium">{filter.replace('_', ' ')}</span></span>
-              <button
-                onClick={() => setFilter('ALL')}
-                className="text-indigo-400 hover:text-indigo-300 underline"
-              >
-                Clear
-              </button>
-            </div>
-          )}
-
           {/* Queue items */}
-          {filteredItems.length === 0 ? (
+          {filteredPRItems.length === 0 ? (
             <EmptyState
               icon={<GitPullRequest className="w-6 h-6" />}
               title={filter === 'ALL' ? 'Review queue is empty' : 'No items match this filter'}
@@ -253,7 +424,7 @@ export const ReviewQueuePage: React.FC = () => {
             />
           ) : (
             <div className="space-y-2.5">
-              {filteredItems.map(item => (
+              {filteredPRItems.map(item => (
                 <QueueItemRow key={item.pull_request.id} item={item} />
               ))}
             </div>

@@ -1,6 +1,5 @@
 import { request, ApiException } from './api';
 import type { ReviewRead } from '../types';
-import { fallbackReview } from './mockData';
 
 export interface PublishResult {
   success: boolean;
@@ -14,9 +13,6 @@ export const reviewService = {
       return await request<ReviewRead>(`/pull-requests/${pullRequestId}/review`);
     } catch (error) {
       if (error instanceof ApiException) {
-        if (error.status === 0) {
-          return fallbackReview;
-        }
         // If 404, no review has been generated yet
         if (error.status === 404) {
           throw new ApiException(404, 'No review has been generated for this pull request yet.');
@@ -25,6 +21,7 @@ export const reviewService = {
       throw error;
     }
   },
+
 
   async publishReview(reviewId: string): Promise<PublishResult> {
     try {

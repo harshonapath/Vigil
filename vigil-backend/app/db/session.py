@@ -12,9 +12,13 @@ def compile_uniqueidentifier_sqlite(type_, compiler, **kw):
 
 
 db_url = settings.DATABASE_URL or "sqlite:///./vigil.db"
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
 connect_args = {}
 if db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+
 
 engine = create_engine(
     db_url,

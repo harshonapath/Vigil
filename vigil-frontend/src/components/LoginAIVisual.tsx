@@ -23,22 +23,6 @@ export default function LoginAIVisual() {
   return (
     <div className="auth-ai-visual" aria-hidden="true">
       <svg className="auth-neural-svg" viewBox="0 0 240 190" fill="none">
-        <defs>
-          <linearGradient id="auth-neural-flow" x1="18" y1="0" x2="222" y2="0" gradientUnits="userSpaceOnUse">
-            <stop stopColor="var(--pipeline-blue)" />
-            <stop offset="0.52" stopColor="var(--pipeline-violet)" />
-            <stop offset="1" stopColor="var(--pipeline-success)" />
-          </linearGradient>
-          <radialGradient id="auth-neural-core">
-            <stop stopColor="var(--pipeline-node-core)" />
-            <stop offset="0.28" stopColor="var(--pipeline-violet)" />
-            <stop offset="1" stopColor="transparent" />
-          </radialGradient>
-          <filter id="auth-neural-soft-glow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="4" />
-          </filter>
-        </defs>
-
         <ellipse className="auth-neural-ambient" cx="120" cy="96" rx="108" ry="76" />
 
         <g className="auth-neural-connections">
@@ -57,8 +41,7 @@ export default function LoginAIVisual() {
         {/* Stable central analysis structure */}
         <path className="auth-neural-plane auth-neural-plane--back" d="m120 57 38 22-8 56-30 17-32-17-7-56Z" />
         <path className="auth-neural-plane auth-neural-plane--front" d="m120 70 28 17-6 39-22 13-23-13-5-39Z" />
-        <circle className="auth-neural-core-glow" cx="120" cy="112" r="22" fill="var(--pipeline-violet)" filter="url(#auth-neural-soft-glow)" />
-        <circle className="auth-neural-core" cx="120" cy="112" r="9" fill="url(#auth-neural-core)" />
+        <circle className="auth-neural-core" cx="120" cy="112" r="9" fill="var(--primary)" />
 
         {nodes.map(([cx, cy, r, delay], index) => (
           <circle

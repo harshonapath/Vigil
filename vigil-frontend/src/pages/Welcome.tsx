@@ -4,9 +4,9 @@ import SecurityPipelineVisual from '../components/SecurityPipelineVisual';
 import { useApp } from '../contexts/AppContext';
 
 const TRUST_POINTS = [
-  { icon: Eye, title: 'Read-only GitHub access', text: 'Your code stays yours. Vigil never pushes or modifies repositories.' },
-  { icon: ShieldCheck, title: 'SOC 2 Type II infrastructure', text: 'Enterprise-grade controls protect every review and analysis.' },
-  { icon: FileCheck2, title: 'Complete audit trail', text: 'Every finding, review, and human decision is recorded.' },
+  { icon: Eye, title: 'Secure GitHub Integration', text: 'Repository and pull-request data is securely analyzed through Vigil.' },
+  { icon: ShieldCheck, title: 'AI Security Analysis', text: 'Analyze code changes and surface potential security findings.' },
+  { icon: FileCheck2, title: 'Review History', text: 'Track findings, reviews, and review status in one place.' },
 ];
 
 export default function Welcome() {
@@ -41,7 +41,7 @@ export default function Welcome() {
           <h1>Security that<br /><span>works with you.</span></h1>
           <p className="welcome-lede">Review security before it reaches production.</p>
           <p className="welcome-support">
-            Vigil brings AI-powered security analysis into every pull request, helping your team understand risk and make confident decisions without slowing delivery.
+            Vigil brings AI-powered security analysis to your pull requests, helping your team identify security risks, understand findings, and make confident decisions without slowing delivery.
           </p>
           <div className="welcome-actions">
             <button className="btn btn-primary btn-lg" onClick={() => navigate('/signup')}>
@@ -50,8 +50,8 @@ export default function Welcome() {
             <button className="btn btn-ghost btn-lg" onClick={() => navigate('/login')}>Sign In</button>
           </div>
           <div className="welcome-proof">
-            <span><CheckCircle size={11} /> No credit card</span>
-            <span><CheckCircle size={11} /> Read-only by design</span>
+            <span><CheckCircle size={11} /> AI-powered PR analysis</span>
+            <span><CheckCircle size={11} /> Human-controlled review</span>
             <span><CheckCircle size={11} /> Human decision stays final</span>
           </div>
         </section>
@@ -59,13 +59,15 @@ export default function Welcome() {
         <section className="welcome-visual" aria-label="Vigil security analysis workflow">
           <div className="welcome-visual-glow" />
           <SecurityPipelineVisual />
-          <div className="welcome-signal welcome-signal-top">
-            <span className="dot dot-safe dot-pulse" />
-            <div><strong>Continuous analysis</strong><small>Monitoring every code change</small></div>
-          </div>
-          <div className="welcome-signal welcome-signal-bottom">
-            <ShieldCheck size={13} />
-            <div><strong>Human-controlled</strong><small>AI advises. Your team decides.</small></div>
+          <div className="welcome-signal-row">
+            <div className="welcome-signal welcome-signal-top">
+              <span className="dot dot-safe dot-pulse" />
+              <div><strong>AI-powered PR review</strong><small>Analyze pull requests for potential security risks.</small></div>
+            </div>
+            <div className="welcome-signal welcome-signal-bottom">
+              <ShieldCheck size={13} />
+              <div><strong>Human-controlled</strong><small>AI identifies risks. Your team makes the final decision.</small></div>
+            </div>
           </div>
         </section>
       </main>

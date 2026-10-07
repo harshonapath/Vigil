@@ -15,36 +15,15 @@ export default function SecurityPipelineVisual() {
   ];
 
   return (
-    <div className="security-pipeline" aria-label="Code flowing through Vigil AI analysis into security intelligence and action">
+    <div className="security-pipeline" aria-label="Pull request flowing through Vigil AI analysis into security findings and human review">
       <div className="pipeline-depth-grid" />
 
       <svg className="pipeline-visual" viewBox="0 0 500 430" role="img" aria-hidden="true">
-        <defs>
-          <linearGradient id="pipeline-flow" x1="55" y1="0" x2="458" y2="0" gradientUnits="userSpaceOnUse">
-            <stop stopColor="var(--pipeline-blue)" />
-            <stop offset="0.52" stopColor="var(--pipeline-violet)" />
-            <stop offset="1" stopColor="var(--pipeline-success)" />
-          </linearGradient>
-          <linearGradient id="pipeline-glass" x1="0" y1="0" x2="1" y2="1">
-            <stop stopColor="var(--pipeline-reflection)" />
-            <stop offset="0.48" stopColor="var(--pipeline-panel)" />
-            <stop offset="1" stopColor="transparent" />
-          </linearGradient>
-          <radialGradient id="pipeline-core">
-            <stop stopColor="var(--pipeline-node-core)" />
-            <stop offset="0.25" stopColor="var(--pipeline-violet)" />
-            <stop offset="1" stopColor="transparent" />
-          </radialGradient>
-          <filter id="pipeline-soft-glow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="5" />
-          </filter>
-        </defs>
-
         <ellipse className="pipeline-ambient" cx="256" cy="216" rx="195" ry="162" />
 
         {/* Input plane: abstract code/data entering the system */}
         <g className="pipeline-plane pipeline-plane--input">
-          <path d="M35 145 123 120 123 298 35 278Z" fill="url(#pipeline-glass)" />
+          <path d="M35 145 123 120 123 298 35 278Z" fill="var(--pipeline-panel)" />
           <path d="M35 145 123 120 123 298 35 278Z" className="pipeline-plane-edge" />
           <path d="m53 174 47-11M53 196l35-8M53 221l50-10M53 244l29-5" className="pipeline-data-strokes" />
           <circle cx="106" cy="161" r="2.4" className="pipeline-input-node" />
@@ -53,9 +32,9 @@ export default function SecurityPipelineVisual() {
 
         {/* Layered analysis volume */}
         <g className="pipeline-analysis-volume">
-          <path d="m150 112 112-30 0 246-112 25Z" fill="url(#pipeline-glass)" className="pipeline-plane-edge pipeline-layer-back" />
-          <path d="m188 96 113 20 0 233-113-17Z" fill="url(#pipeline-glass)" className="pipeline-plane-edge pipeline-layer-middle" />
-          <path d="m226 82 112 39 0 226-112-34Z" fill="url(#pipeline-glass)" className="pipeline-plane-edge pipeline-layer-front" />
+          <path d="m150 112 112-30 0 246-112 25Z" fill="var(--pipeline-panel)" className="pipeline-plane-edge pipeline-layer-back" />
+          <path d="m188 96 113 20 0 233-113-17Z" fill="var(--pipeline-panel)" className="pipeline-plane-edge pipeline-layer-middle" />
+          <path d="m226 82 112 39 0 226-112-34Z" fill="var(--pipeline-panel)" className="pipeline-plane-edge pipeline-layer-front" />
         </g>
 
         {/* Neural paths */}
@@ -78,14 +57,13 @@ export default function SecurityPipelineVisual() {
         ))}
 
         {/* Neural intelligence core */}
-        <circle cx="252" cy="211" r="31" fill="var(--pipeline-violet)" opacity="0.09" filter="url(#pipeline-soft-glow)" />
         <circle className="pipeline-core-ring pipeline-core-ring--outer" cx="252" cy="211" r="25" />
         <circle className="pipeline-core-ring pipeline-core-ring--inner" cx="252" cy="211" r="16" />
-        <circle className="pipeline-core-orb" cx="252" cy="211" r="7.5" fill="url(#pipeline-core)" />
+        <circle className="pipeline-core-orb" cx="252" cy="211" r="7.5" fill="var(--primary)" />
 
         {/* Abstract processed output */}
         <g className="pipeline-plane pipeline-plane--output">
-          <path d="m378 139 86 22v133l-86 18Z" fill="url(#pipeline-glass)" />
+          <path d="m378 139 86 22v133l-86 18Z" fill="var(--pipeline-panel)" />
           <path d="m378 139 86 22v133l-86 18Z" className="pipeline-plane-edge" />
           <path d="M397 181h41M397 210h29M397 239h36M397 268h22" className="pipeline-result-strokes" />
           <circle cx="447" cy="180" r="3" className="pipeline-result-node" />
@@ -105,9 +83,13 @@ export default function SecurityPipelineVisual() {
       </svg>
 
       <div className="pipeline-stage pipeline-stage--input"><span>01</span><strong>Input</strong><small>Code change</small></div>
-      <div className="pipeline-stage pipeline-stage--analysis"><span>02</span><strong>AI Analysis</strong><small>Context and risk</small></div>
+      <div className="pipeline-stage pipeline-stage--analysis"><span>02</span><strong>AI Analysis</strong><small>Injection defense + risk</small></div>
       <div className="pipeline-stage pipeline-stage--intelligence"><span>03</span><strong>Security Insight</strong><small>Prioritized signal</small></div>
       <div className="pipeline-stage pipeline-stage--action"><span>04</span><strong>Action</strong><small>Fix with confidence</small></div>
+      <div className="pipeline-stage pipeline-stage--input"><span>01</span><strong>Pull Request</strong><small>Code changes + PR context</small></div>
+      <div className="pipeline-stage pipeline-stage--analysis"><span>02</span><strong>AI Analysis</strong><small>Code, context &amp; security risk</small></div>
+      <div className="pipeline-stage pipeline-stage--intelligence"><span>03</span><strong>Security Findings</strong><small>Prioritized risks &amp; insights</small></div>
+      <div className="pipeline-stage pipeline-stage--action"><span>04</span><strong>Human Review</strong><small>Review findings &amp; decide</small></div>
     </div>
   );
 }

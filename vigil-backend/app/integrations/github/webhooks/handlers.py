@@ -43,6 +43,7 @@ class PushEventHandler(BaseWebhookHandler):
 
         try:
             repo_dict = event.repository.model_dump()
+            repo_dict["installation_id"] = event.installation_id
             repo = repository_service.sync_repository_payload(db=db, repo_data=repo_dict)
 
             synced_commits = []
@@ -108,6 +109,7 @@ class PullRequestEventHandler(BaseWebhookHandler):
 
         try:
             repo_dict = event.repository.model_dump()
+            repo_dict["installation_id"] = event.installation_id
             repo = repository_service.sync_repository_payload(db=db, repo_data=repo_dict)
 
             pr_dict = event.pull_request.model_dump()

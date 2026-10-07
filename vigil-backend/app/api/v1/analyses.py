@@ -63,8 +63,17 @@ async def trigger_commit_analysis(
     db.commit()
     db.refresh(analysis)
 
+    # Helper to run background analysis with managed DB session lifecycle
+    async def _run_bg_analysis(analysis_uuid: uuid.UUID, inst_id: int, bind_engine):
+        bg_db = Session(bind_engine)
+        try:
+            await ai_analysis_service.run_analysis(db=bg_db, analysis_id=analysis_uuid, installation_id=inst_id)
+        finally:
+            bg_db.close()
+
     # Trigger background analysis
-    asyncio.create_task(ai_analysis_service.run_analysis(db=Session(db.get_bind()), analysis_id=analysis.id, installation_id=installation_id))
+    asyncio.create_task(_run_bg_analysis(analysis.id, installation_id, db.get_bind()))
 
     return AnalysisRead.model_validate(analysis)
+
 

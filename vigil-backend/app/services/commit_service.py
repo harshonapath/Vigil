@@ -66,17 +66,23 @@ class CommitService:
         if not sha:
             raise ValueError("Missing commit SHA in payload")
 
-        commit_inner = commit_data.get("commit", {}) if isinstance(commit_data.get("commit"), dict) else commit_data
-        message = commit_inner.get("message", "")
+        commit_inner = commit_data.get("commit") if isinstance(commit_data.get("commit"), dict) else commit_data
+        message = (commit_inner.get("message") if isinstance(commit_inner, dict) else None) or commit_data.get("message", "")
 
-        author_inner = commit_inner.get("author", {}) if isinstance(commit_inner.get("author"), dict) else {}
-        author_name = author_inner.get("name") or commit_data.get("author_name")
-        author_email = author_inner.get("email") or commit_data.get("author_email")
+        author_inner = commit_inner.get("author") if isinstance(commit_inner, dict) and isinstance(commit_inner.get("author"), dict) else {}
+        author_name = (author_inner.get("name") if isinstance(author_inner, dict) else None) or commit_data.get("author_name")
+        author_email = (author_inner.get("email") if isinstance(author_inner, dict) else None) or commit_data.get("author_email")
 
-        author_user = commit_data.get("author", {}) if isinstance(commit_data.get("author"), dict) else {}
-        author_login = author_user.get("login") if isinstance(author_user, dict) else commit_data.get("author_login")
+        author_user = commit_data.get("author")
+        author_login = None
+        if isinstance(author_user, dict):
+            author_login = author_user.get("login")
+        elif isinstance(author_user, str):
+            author_login = author_user
+        if not author_login:
+            author_login = commit_data.get("author_login")
 
-        committed_at_raw = author_inner.get("date") or commit_data.get("timestamp")
+        committed_at_raw = (author_inner.get("date") if isinstance(author_inner, dict) else None) or commit_data.get("timestamp") or commit_data.get("committed_at")
         committed_at = None
         if committed_at_raw:
             try:

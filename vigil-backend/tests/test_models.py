@@ -17,6 +17,7 @@ def test_models_metadata():
     expected_tables = {
         "users",
         "repositories",
+        "repository_installations",
         "pull_requests",
         "commits",
         "pull_request_commits",
@@ -26,12 +27,18 @@ def test_models_metadata():
         "commit_analyses",
         # Phase 6: verification audit table
         "finding_verifications",
+        "security_assumptions",
+        "security_assumption_versions",
+        "security_assumption_evidence",
+        "security_assumption_changes",
+        "security_assumption_decisions",
+        "security_assumption_runs",
     }
     
     assert set(Base.metadata.tables.keys()) == expected_tables, (
         f"Expected tables {expected_tables}, got {set(Base.metadata.tables.keys())}"
     )
-    assert len(Base.metadata.tables) == 10
+    assert len(Base.metadata.tables) == 17
 
 
 def test_pull_request_commits_composite_pk():

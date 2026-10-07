@@ -7,11 +7,13 @@ from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.repository_installation import RepositoryInstallation
 
 if TYPE_CHECKING:
     from app.models.commit import Commit
     from app.models.pull_request import PullRequest
     from app.models.user import User
+    from app.models.repository_installation import RepositoryInstallation
 
 
 class Repository(Base):
@@ -92,3 +94,20 @@ class Repository(Base):
         "Commit",
         back_populates="repository",
     )
+    installation: Mapped[Optional["RepositoryInstallation"]] = relationship(
+        "RepositoryInstallation", back_populates="repository", uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def installation_id(self) -> Optional[int]:
+        return self.installation.github_installation_id if self.installation else None
+
+    @installation_id.setter
+    def installation_id(self, value: Optional[int]) -> None:
+        if value is None:
+            return
+        if self.installation is None:
+            self.installation = RepositoryInstallation(github_installation_id=int(value))
+        else:
+            self.installation.github_installation_id = int(value)

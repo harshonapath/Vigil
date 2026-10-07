@@ -44,7 +44,7 @@ const NAV_ITEMS: NavItem[] = [
     icon: ShieldAlert,
     key: 'findings',
     path: '/findings',
-    description: 'View detected security vulnerabilities and findings',
+    description: 'View security findings detected during AI analysis',
   },
   {
     icon: GitCommitHorizontal,
@@ -59,12 +59,6 @@ const NAV_ITEMS: NavItem[] = [
     description: 'View security and review analytics',
   },
   {
-  icon: GitPullRequest,
-  key: 'reviewQueue',
-  path: '/review-queue',
-  description: 'Open pull requests awaiting human review and decision',
-},
-  {
     icon: Clock,
     key: 'reviewHistory',
     path: '/review-history',
@@ -76,7 +70,7 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
   const { t, lang, setLang, theme, setTheme } = useApp();
   const [tooltip, setTooltip] = useState<{ text: string; top: number } | null>(null);
 
-  const W = collapsed ? 56 : 216;
+  const W = collapsed ? 56 : 248;
   const languages = ['en', 'hi', 'hinglish'] as const;
   const languageShort = { en: 'EN', hi: 'हि', hinglish: 'HG' };
   const languageKey = { en: 'english', hi: 'hindi', hinglish: 'hinglish' };
@@ -94,7 +88,7 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
           width: W,
           minWidth: W,
           transition: 'width 220ms cubic-bezier(0.4,0,0.2,1), min-width 220ms cubic-bezier(0.4,0,0.2,1)',
-          background: 'var(--card)',
+          background: 'var(--sidebar)',
           borderRight: '1px solid var(--border)',
           display: 'flex',
           flexDirection: 'column',
@@ -133,13 +127,11 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
           onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
         >
           <div style={{
-            width: 26, height: 26,
-            borderRadius: 5,
-            background: 'var(--primary)',
+            width: 32, height: 32,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <Zap size={13} color="#fff" strokeWidth={2.5} />
+            <Zap size={30} color="var(--primary)" strokeWidth={2.5} />
           </div>
           {(!collapsed || mobileOpen) && (
             <span style={{
@@ -163,6 +155,7 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
               <div
                 key={item.path}
                 onMouseEnter={event => {
+                  if (!collapsed || mobileOpen) return;
                   const rect = event.currentTarget.getBoundingClientRect();
                   setTooltip({ text: item.description, top: rect.top + rect.height / 2 });
                 }}
@@ -170,32 +163,35 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
               >
                 <NavLink
                   to={item.path}
+                  data-tour-target={`nav-${item.key}`}
+                  title={collapsed && !mobileOpen ? item.description : undefined}
                   onClick={onMobileClose}
                   style={({ isActive }) => ({
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 9,
-                    height: 36,
-                    padding: collapsed ? '0 15px' : '0 14px',
-                    margin: '1px 6px',
-                    borderRadius: 5,
+                    gap: 12,
+                    height: 42,
+                    padding: collapsed ? '0' : '0 18px',
+                    margin: '3px 12px',
+                    borderRadius: 7,
                     textDecoration: 'none',
                     fontSize: '0.82rem',
                     fontWeight: isActive ? 500 : 400,
-                    color: isActive ? 'var(--foreground)' : 'var(--muted-foreground)',
-                    background: isActive ? 'var(--secondary)' : 'transparent',
-                    borderLeft: isActive ? '2px solid var(--primary)' : '2px solid transparent',
+                    color: isActive ? '#ffffff' : 'var(--secondary-foreground)',
+                    background: isActive ? 'var(--primary)' : 'transparent',
+                    borderLeft: '2px solid transparent',
                     transition: 'all 120ms ease',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
+                    justifyContent: collapsed && !mobileOpen ? 'center' : 'flex-start',
                   })}
                 >
                   {({ isActive }) => (
                     <>
                       <Icon
-                        size={15}
-                        strokeWidth={isActive ? 2 : 1.75}
-                        style={{ flexShrink: 0, color: isActive ? 'var(--primary)' : 'inherit' }}
+                        size={21}
+                        strokeWidth={isActive ? 2.35 : 2.1}
+                        style={{ flexShrink: 0, color: isActive ? '#ffffff' : 'var(--foreground)' }}
                       />
                       {(!collapsed || mobileOpen) && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t(item.key)}</span>}
                     </>
@@ -250,8 +246,10 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
           {/* Settings */}
           <NavLink
             to="/settings"
+            title={collapsed && !mobileOpen ? 'Manage workspace preferences and integrations' : undefined}
             onClick={onMobileClose}
             onMouseEnter={event => {
+              if (!collapsed || mobileOpen) return;
               const rect = event.currentTarget.getBoundingClientRect();
               setTooltip({ text: 'Manage workspace preferences and integrations', top: rect.top + rect.height / 2 });
             }}
@@ -259,35 +257,35 @@ export default function Nav({ collapsed, onCollapseToggle, mobileOpen = false, o
             style={({ isActive }) => ({
               display: 'flex',
               alignItems: 'center',
-              gap: 9,
-              height: 36,
-              padding: collapsed ? '0 15px' : '0 14px',
-              margin: '1px 6px',
-              borderRadius: 5,
+              gap: 12,
+              height: 42,
+              padding: collapsed ? '0' : '0 18px',
+              margin: '3px 12px',
+              borderRadius: 7,
               textDecoration: 'none',
               fontSize: '0.82rem',
               fontWeight: isActive ? 500 : 400,
-              color: isActive ? 'var(--foreground)' : 'var(--muted-foreground)',
-              background: isActive ? 'var(--secondary)' : 'transparent',
-              borderLeft: isActive ? '2px solid var(--primary)' : '2px solid transparent',
+              color: isActive ? '#ffffff' : 'var(--secondary-foreground)',
+              background: isActive ? 'var(--primary)' : 'transparent',
+              borderLeft: '2px solid transparent',
               transition: 'all 120ms ease',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               justifyContent: collapsed ? 'center' : 'flex-start',
             })}
           >
-            <Settings size={15} strokeWidth={1.75} style={{ flexShrink: 0 }} />
+            <Settings size={21} strokeWidth={2.1} style={{ flexShrink: 0, color: 'var(--foreground)' }} />
             {(!collapsed || mobileOpen) && <span>{t('settings')}</span>}
           </NavLink>
         </div>
       </nav>
 
       <div
-        className={`nav-item-tooltip${tooltip ? ' visible' : ''}`}
+        className={`nav-item-tooltip${tooltip && collapsed && !mobileOpen ? ' visible' : ''}`}
         role="tooltip"
         style={{ left: W + 9, top: tooltip?.top ?? 0 }}
       >
-        {tooltip?.text}
+        {collapsed && !mobileOpen ? tooltip?.text : null}
       </div>
     </>
   );

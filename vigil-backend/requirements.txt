@@ -6,6 +6,7 @@ SQLAlchemy
 alembic
 pyodbc
 httpx
+openai>=1.0
 pyjwt
 cryptography
 GitPython

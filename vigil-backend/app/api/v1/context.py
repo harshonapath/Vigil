@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
+from app.core.auth import ReviewerContext, get_current_reviewer
 from app.db.session import get_db
 from app.models.repository import Repository
 from app.integrations.repolens import repository_context_service
@@ -58,6 +59,7 @@ async def generate_context(
     sha: str = Query(..., description="Commit SHA to generate context for"),
     installation_id: int = Query(..., description="GitHub App Installation ID"),
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ):
     repo = db.scalar(select(Repository).where(Repository.id == repository_id))
     if not repo:
@@ -85,6 +87,7 @@ async def rebuild_context(
     sha: str = Query(..., description="Commit SHA to rebuild context for"),
     installation_id: int = Query(..., description="GitHub App Installation ID"),
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ):
     repo = db.scalar(select(Repository).where(Repository.id == repository_id))
     if not repo:
@@ -101,3 +104,4 @@ async def rebuild_context(
         return {"status": "accepted", "message": "Context rebuild completed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

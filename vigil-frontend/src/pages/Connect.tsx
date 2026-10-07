@@ -1,29 +1,74 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GitBranch, CheckCircle, Loader, ArrowRight, Lock, AlertCircle } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
+import { useGitHub } from '../contexts/GitHubContext';
+import { repositoryService } from '../services/repositoryService';
+import type { RepositoryRead } from '../types';
 
-const repos = [
-  { name: 'api-gateway', org: 'acme-corp', private: true, language: 'Go', stars: 124 },
-  { name: 'web-frontend', org: 'acme-corp', private: false, language: 'TypeScript', stars: 67 },
-  { name: 'auth-service', org: 'acme-corp', private: true, language: 'Python', stars: 89 },
-  { name: 'data-pipeline', org: 'acme-corp', private: true, language: 'Python', stars: 34 },
-  { name: 'mobile-app', org: 'acme-corp', private: false, language: 'Swift', stars: 201 },
-  { name: 'infrastructure', org: 'acme-corp', private: true, language: 'HCL', stars: 12 },
-];
+interface RepoItem {
+  name: string;
+  org: string;
+  private: boolean;
+  full_name: string;
+  id: string;
+}
 
 export default function Connect() {
   const navigate = useNavigate();
   const { setGithubConnected } = useApp();
+  const { connected: ghConnected, installationId, loading: ghLoading, refresh: refreshGH } = useGitHub();
   const [stage, setStage] = useState<'connect' | 'select' | 'done'>('connect');
   const [connecting, setConnecting] = useState(false);
+  const [repos, setRepos] = useState<RepoItem[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [connectError, setConnectError] = useState('');
 
+  // If GitHub is already connected, skip to select stage
+  useEffect(() => {
+    if (!ghLoading && ghConnected && stage === 'connect') {
+      setStage('select');
+    }
+  }, [ghLoading, ghConnected, stage]);
+
+  // Load repos from backend when entering select stage
+  useEffect(() => {
+    if (stage !== 'select') return;
+    let cancelled = false;
+    setLoadingRepos(true);
+
+    repositoryService
+      .getMyRepositories(1, 50, installationId)
+      .then((res) => {
+        if (cancelled) return;
+        const items: RepoItem[] = res.items.map((r: RepositoryRead) => ({
+          name: r.name,
+          org: r.owner_login,
+          private: r.private,
+          full_name: r.full_name,
+          id: r.id,
+        }));
+        setRepos(items);
+        // Auto-select all repos
+        setSelected(new Set(items.map((r) => r.name)));
+      })
+      .catch(() => {
+        if (!cancelled) setRepos([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRepos(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [stage, installationId]);
+
   const handleConnect = () => {
     setConnectError('');
     setConnecting(true);
+    // Refresh GitHub status from backend
+    refreshGH();
     setTimeout(() => {
       setConnecting(false);
       if (!navigator.onLine) {
@@ -78,7 +123,7 @@ export default function Connect() {
                   }}>
                     {done
                       ? <CheckCircle size={12} color="#000" />
-                      : <span style={{ fontSize: '0.7rem', color: '#fff', fontWeight: '600' }}>{i + 1}</span>
+                      : <span style={{ fontSize: '0.7rem', color: 'var(--primary-foreground)', fontWeight: '600' }}>{i + 1}</span>
                     }
                   </div>
                   <span style={{ fontSize: '0.8rem', color: active ? 'var(--foreground)' : 'var(--muted-foreground)' }}>{s}</span>
@@ -134,7 +179,7 @@ export default function Connect() {
               disabled={connecting}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                padding: '13px', background: '#24292e', color: '#fff',
+                padding: '13px', background: 'var(--card)', color: 'var(--foreground)',
                 border: 'none', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '500',
                 cursor: connecting ? 'not-allowed' : 'pointer',
               }}
@@ -162,7 +207,9 @@ export default function Connect() {
           <div className="page-transition">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <CheckCircle size={16} style={{ color: 'var(--accent)' }} />
-              <span style={{ fontSize: '0.8rem', color: 'var(--accent)', fontWeight: '500' }}>GitHub connected — acme-corp</span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--accent)', fontWeight: '500' }}>
+                GitHub connected{repos.length > 0 ? ` — ${repos[0].org}` : ''}
+              </span>
             </div>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px', letterSpacing: '-0.018em' }}>
               Select repositories to analyze
@@ -171,50 +218,61 @@ export default function Connect() {
               Select the repositories you want Vigil to monitor. You can change this later in Settings.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
-              {repos.map((r) => (
-                <div
-                  key={r.name}
-                  onClick={() => toggleRepo(r.name)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    padding: '12px 16px',
-                    background: selected.has(r.name) ? 'color-mix(in srgb, var(--primary) 8%, var(--secondary))' : 'var(--secondary)',
-                    border: `1px solid ${selected.has(r.name) ? 'color-mix(in srgb, var(--primary) 40%, transparent)' : 'var(--border)'}`,
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 150ms',
-                  }}
-                >
-                  <div style={{
-                    width: '18px', height: '18px', borderRadius: '4px',
-                    border: `2px solid ${selected.has(r.name) ? 'var(--primary)' : 'var(--border)'}`,
-                    background: selected.has(r.name) ? 'var(--primary)' : 'transparent',
-                    flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    {selected.has(r.name) && <CheckCircle size={11} color="#fff" />}
-                  </div>
-                  <GitBranch size={14} style={{ color: 'var(--muted-foreground)' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '0.875rem', fontWeight: '500', color: 'var(--foreground)' }}>
-                        {r.org}/{r.name}
-                      </span>
-                      {r.private && <Lock size={11} style={{ color: 'var(--muted-foreground)' }} />}
+            {loadingRepos ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted-foreground)', fontSize: '0.875rem' }}>
+                <Loader size={20} style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+                <div>Loading repositories from GitHub…</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+                {repos.map((r) => (
+                  <div
+                    key={r.id || r.name}
+                    onClick={() => toggleRepo(r.name)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      padding: '12px 16px',
+                      background: selected.has(r.name) ? 'color-mix(in srgb, var(--primary) 8%, var(--secondary))' : 'var(--secondary)',
+                      border: `1px solid ${selected.has(r.name) ? 'color-mix(in srgb, var(--primary) 40%, transparent)' : 'var(--border)'}`,
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 150ms',
+                    }}
+                  >
+                    <div style={{
+                      width: '18px', height: '18px', borderRadius: '4px',
+                      border: `2px solid ${selected.has(r.name) ? 'var(--primary)' : 'var(--border)'}`,
+                      background: selected.has(r.name) ? 'var(--primary)' : 'transparent',
+                      flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {selected.has(r.name) && <CheckCircle size={11} color="#fff" />}
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{r.language}</span>
+                    <GitBranch size={14} style={{ color: 'var(--muted-foreground)' }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.875rem', fontWeight: '500', color: 'var(--foreground)' }}>
+                          {r.full_name || `${r.org}/${r.name}`}
+                        </span>
+                        {r.private && <Lock size={11} style={{ color: 'var(--muted-foreground)' }} />}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+                {repos.length === 0 && !loadingRepos && (
+                  <div style={{ textAlign: 'center', padding: '24px', color: 'var(--muted-foreground)', fontSize: '0.85rem' }}>
+                    No repositories found. Make sure the GitHub App has access to at least one repository.
+                  </div>
+                )}
+              </div>
+            )}
 
             <button
               onClick={handleFinish}
               disabled={selected.size === 0 || syncing}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                padding: '13px', background: 'var(--primary)', color: '#fff',
+                padding: '13px', background: 'var(--primary)', color: 'var(--primary-foreground)',
                 border: 'none', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '500',
                 cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
                 opacity: selected.size === 0 ? 0.5 : 1,

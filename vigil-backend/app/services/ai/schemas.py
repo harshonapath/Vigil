@@ -37,6 +37,10 @@ class AICompletionRequest(BaseModel):
         gt=0,
         description="Maximum number of tokens to generate.",
     )
+    response_format: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Provider-neutral structured response format, such as JSON mode.",
+    )
 
 
 class AICompletionResponse(BaseModel):
@@ -54,3 +58,6 @@ class AICompletionResponse(BaseModel):
         default=None,
         description="Termination reason (e.g. 'stop', 'length').",
     )
+    provider: Optional[str] = None
+    fallback_used: bool = False
+    retry_count: int = 0

@@ -80,11 +80,25 @@ def normalize_webhook_payload(
     if not repo_raw:
         return None
 
+    # Robust extraction of owner login
+    owner_val = ""
+    owner_raw = repo_raw.get("owner")
+    if isinstance(owner_raw, dict):
+        owner_val = owner_raw.get("login") or ""
+    elif isinstance(owner_raw, str):
+        owner_val = owner_raw.strip()
+    if not owner_val:
+        owner_val = repo_raw.get("owner_login") or ""
+    if not owner_val and repo_raw.get("full_name") and "/" in repo_raw["full_name"]:
+        parts = repo_raw["full_name"].split("/", 1)
+        if parts[0].strip() and parts[0].strip().lower() != "unknown":
+            owner_val = parts[0].strip()
+
     repository = RepositoryPayload(
         id=repo_raw.get("id", 0),
         name=repo_raw.get("name", ""),
         full_name=repo_raw.get("full_name", ""),
-        owner_login=repo_raw.get("owner", {}).get("login", "") if isinstance(repo_raw.get("owner"), dict) else "",
+        owner_login=owner_val,
         private=repo_raw.get("private", False),
         html_url=repo_raw.get("html_url", ""),
         default_branch=repo_raw.get("default_branch"),
@@ -127,6 +141,15 @@ def normalize_webhook_payload(
         if not pr_raw:
             return None
 
+        pr_user_raw = pr_raw.get("user")
+        author_val = ""
+        if isinstance(pr_user_raw, dict):
+            author_val = pr_user_raw.get("login") or ""
+        elif isinstance(pr_user_raw, str):
+            author_val = pr_user_raw.strip()
+        if not author_val:
+            author_val = pr_raw.get("author_login") or ""
+
         pull_request = PullRequestPayload(
             id=pr_raw.get("id", 0),
             number=pr_raw.get("number", payload.get("number", 0)),
@@ -134,11 +157,11 @@ def normalize_webhook_payload(
             body=pr_raw.get("body"),
             state=pr_raw.get("state", "open"),
             merged=pr_raw.get("merged", False),
-            head_sha=pr_raw.get("head", {}).get("sha", "") if isinstance(pr_raw.get("head"), dict) else "",
-            base_sha=pr_raw.get("base", {}).get("sha", "") if isinstance(pr_raw.get("base"), dict) else "",
-            head_branch=pr_raw.get("head", {}).get("ref", "") if isinstance(pr_raw.get("head"), dict) else "",
-            base_branch=pr_raw.get("base", {}).get("ref", "") if isinstance(pr_raw.get("base"), dict) else "",
-            author_login=pr_raw.get("user", {}).get("login", "") if isinstance(pr_raw.get("user"), dict) else "",
+            head_sha=(pr_raw.get("head", {}).get("sha", "") if isinstance(pr_raw.get("head"), dict) else "") or pr_raw.get("head_sha", ""),
+            base_sha=(pr_raw.get("base", {}).get("sha", "") if isinstance(pr_raw.get("base"), dict) else "") or pr_raw.get("base_sha", ""),
+            head_branch=(pr_raw.get("head", {}).get("ref", "") if isinstance(pr_raw.get("head"), dict) else "") or pr_raw.get("head_branch", ""),
+            base_branch=(pr_raw.get("base", {}).get("ref", "") if isinstance(pr_raw.get("base"), dict) else "") or pr_raw.get("base_branch", ""),
+            author_login=author_val,
         )
 
         return GitHubPullRequestEvent(

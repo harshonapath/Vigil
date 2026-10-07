@@ -56,6 +56,25 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   );
 }
 
+function MicrosoftAuthenticationState({ connected = false }: { connected?: boolean }) {
+  const { t } = useApp();
+
+  if (connected) {
+    return (
+      <span className="btn btn-sm microsoft-auth-connected" role="status">
+        <Check size={12} />
+        {t('connected')}
+      </span>
+    );
+  }
+
+  return (
+    <button type="button" className="btn btn-primary btn-sm">
+      {t('connectMicrosoft')}
+    </button>
+  );
+}
+
 function SegmentedControl<T extends string>({ options, value, onChange }: {
   options: { value: T; label: string; icon?: React.ElementType }[];
   value: T;
@@ -114,7 +133,7 @@ export default function Settings() {
           </div>
         </Row>
         <Row icon={Shield} label={t('microsoftAuth')} description={t('microsoftAuthDescription')}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--muted-foreground)', fontWeight: 500 }}>{t('comingSoon')}</span>
+          <MicrosoftAuthenticationState />
         </Row>
         <Row icon={LogOut} label={t('signOut')} description={t('signOutDescription')} last>
           <button className="btn btn-secondary btn-sm" disabled={authLoading} onClick={() => void signOut()}>

@@ -124,19 +124,20 @@ export const REPO_DISPLAY_META_BY_NAME: Record<string, Omit<RepoDisplayMeta, 'id
 export const DEFAULT_DISPLAY_META: Omit<RepoDisplayMeta, 'id'> = {
   language: 'Unknown',
   languageColor: '#64748b',
-  securityScore: 65,
-  riskLevel: 'medium',
+  securityScore: 100,
+  riskLevel: 'clean',
   openPRs: 0,
   criticalFindings: 0,
   highFindings: 0,
-  mediumFindings: 2,
-  lowFindings: 4,
+  mediumFindings: 0,
+  lowFindings: 0,
   lastAnalyzed: 'Not analyzed',
-  description: 'No description available.',
+  description: 'Connected via GitHub App.',
   topics: [],
   stars: 0,
   githubConnected: true,
 };
+
 
 export function getDisplayMeta(repoName: string): Omit<RepoDisplayMeta, 'id'> {
   return REPO_DISPLAY_META_BY_NAME[repoName] ?? DEFAULT_DISPLAY_META;

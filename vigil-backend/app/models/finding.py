@@ -24,6 +24,10 @@ class FindingSource(str, Enum):
 
 class FindingCategory(str, Enum):
     SECURITY = "SECURITY"
+    PROMPT_INJECTION = "PROMPT_INJECTION"
+    COMPLEXITY = "COMPLEXITY"
+    EDGE_CASE = "EDGE_CASE"
+    SECURITY_ASSUMPTION = "SECURITY_ASSUMPTION"
     LOGIC = "LOGIC"
     ERROR_HANDLING = "ERROR_HANDLING"
     TESTING = "TESTING"
@@ -31,6 +35,7 @@ class FindingCategory(str, Enum):
     CODE_QUALITY = "CODE_QUALITY"
     DOCUMENTATION = "DOCUMENTATION"
     PERFORMANCE = "PERFORMANCE"
+
 
 
 class FindingSeverity(str, Enum):

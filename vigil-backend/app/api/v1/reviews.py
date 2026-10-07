@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.auth import ReviewerContext, get_current_reviewer
 from app.db.session import get_db
 from app.schemas.ai_review import AIReviewRequest, AIReviewResponse
 from app.schemas.review import ReviewRead
@@ -34,6 +35,7 @@ async def create_pull_request_ai_review(
     pull_request_id: uuid.UUID,
     payload: Optional[AIReviewRequest] = None,
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ) -> AIReviewResponse:
     req = payload or AIReviewRequest()
     return await review_service.execute_ai_review(
@@ -58,5 +60,7 @@ async def create_pull_request_ai_review(
 async def publish_review(
     review_id: uuid.UUID,
     db: Session = Depends(get_db),
+    reviewer: ReviewerContext = Depends(get_current_reviewer),
 ) -> ReviewRead:
     return await review_service.publish_review(db=db, review_id=review_id)
+

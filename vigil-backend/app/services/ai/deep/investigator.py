@@ -56,7 +56,7 @@ You MUST return a JSON object with your final determination matching this schema
   "is_supported": true | false,
   "summary": "<Investigation reasoning summary>",
   "finding": {{
-    "category": "Security" | "Logic" | "Error Handling" | "Testing" | "Maintainability" | "Code Quality" | "Documentation" | "Performance",
+    "category": "Security" | "Logic" | "Error Handling" | "Testing" | "Maintainability" | "Code Quality" | "Documentation" | "Performance" | "Complexity",
     "severity": "info" | "low" | "medium" | "high" | "critical",
     "title": "<Short headline>",
     "file": "<exact file path from diff>",
@@ -64,7 +64,11 @@ You MUST return a JSON object with your final determination matching this schema
     "problem": "<detailed bug/vulnerability explanation>",
     "why": "<impact and risk rationale>",
     "evidence": "<exact code snippet from diff>",
-    "suggestion": "<concrete recommended remediation>"
+    "suggestion": "<concrete recommended remediation>",
+    "current_time_complexity": "<e.g. O(n^2) or null>",
+    "suggested_time_complexity": "<e.g. O(n) or null>",
+    "current_space_complexity": "<e.g. O(n) or null>",
+    "suggested_space_complexity": "<e.g. O(1) or null>"
   }}
 }}
 
@@ -213,6 +217,10 @@ class DeepInvestigator:
                 why=raw_finding.get("why", candidate.why_investigate),
                 evidence=raw_finding.get("evidence", candidate.evidence),
                 suggestion=raw_finding.get("suggestion"),
+                current_time_complexity=raw_finding.get("current_time_complexity"),
+                suggested_time_complexity=raw_finding.get("suggested_time_complexity"),
+                current_space_complexity=raw_finding.get("current_space_complexity"),
+                suggested_space_complexity=raw_finding.get("suggested_space_complexity"),
                 source="AI-DeepInvestigation",
             )
 

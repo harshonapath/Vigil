@@ -1,9 +1,11 @@
-﻿import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Search, Layers, RotateCcw, GitFork, Shield, ShieldAlert,
   Filter, SortAsc, CheckCircle2, Lock, Globe,
   ChevronDown, X
 } from 'lucide-react';
+
 import { repositoryService } from '../services/repositoryService';
 import type { RepositoryRead } from '../types';
 import { RepositoryCard } from '../components/repository/RepositoryCard';
@@ -12,6 +14,7 @@ import { ErrorState } from '../components/common/ErrorState';
 import { EmptyState } from '../components/common/EmptyState';
 import { Button } from '../components/common/Button';
 import { getDisplayMeta } from '../data/repoDisplayMeta';
+import { useGitHub } from '../contexts/GitHubContext';
 import { cn } from '../lib/utils';
 
 // â”€â”€â”€ GitFork Connection Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -29,15 +32,14 @@ const GitHubConnectionBanner: React.FC<{
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-100">GitFork Connected</span>
+              <span className="text-sm font-semibold text-slate-100">GitHub App Connected</span>
               <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">
                 <CheckCircle2 className="w-2.5 h-2.5" />
-                Read-only access
+                Synchronized
               </span>
             </div>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              VIGIL can analyze your repositories without modifying any code.
-              Findings, reviews, and analyses are local only.
+              Vigil is monitoring your authorized GitHub repositories and pull requests for security risks.
             </p>
           </div>
         </div>
@@ -60,17 +62,18 @@ const GitHubConnectionBanner: React.FC<{
         <div>
           <span className="text-sm font-semibold text-slate-200">Connect GitHub</span>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            Connect your GitFork account to enable repository scanning and PR analysis.
+            Connect your GitHub App installation to enable repository synchronization and PR review.
           </p>
         </div>
       </div>
-      <button className="text-xs font-semibold bg-indigo-600/90 hover:bg-indigo-600 text-white px-4 py-1.5 rounded-lg transition-colors flex items-center gap-2 shrink-0">
+      <button onClick={onManage} className="text-xs font-semibold bg-indigo-600/90 hover:bg-indigo-600 text-white px-4 py-1.5 rounded-lg transition-colors flex items-center gap-2 shrink-0">
         <GitFork className="w-3.5 h-3.5" />
         Connect GitHub
       </button>
     </div>
   );
 };
+
 
 // â”€â”€â”€ Sort / Filter types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -85,13 +88,15 @@ const RISK_ORDER: Record<string, number> = {
 // â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const RepositoriesPage: React.FC = () => {
+  const navigate = useNavigate();
   const [repositories, setRepositories] = useState<RepositoryRead[]>([]);
+
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
-  const [githubConnected] = useState(true); // mock: always connected
+  const { connected: githubConnected, installationId } = useGitHub();
   const [sortKey, setSortKey] = useState<SortKey>('risk');
   const [filterRisk, setFilterRisk] = useState<FilterRisk>('all');
   const [filterVis, setFilterVis] = useState<FilterVis>('all');
@@ -104,7 +109,7 @@ export const RepositoriesPage: React.FC = () => {
       setLoading(true);
       setError('');
       try {
-        const res = await repositoryService.getMyRepositories(1, 50);
+        const res = await repositoryService.getMyRepositories(1, 50, installationId);
         if (!mountedRef.current) return;
         setRepositories(res.items);
         setTotal(res.total);
@@ -117,7 +122,8 @@ export const RepositoriesPage: React.FC = () => {
     };
     void run();
     return () => { mountedRef.current = false; };
-  }, [refreshTick]);
+  }, [refreshTick, installationId]);
+
 
   const handleRefresh = () => setRefreshTick(t => t + 1);
 
@@ -190,8 +196,9 @@ export const RepositoriesPage: React.FC = () => {
       {/* GitFork connection banner */}
       <GitHubConnectionBanner
         connected={githubConnected}
-        onManage={() => {}}
+        onManage={() => navigate('/connect')}
       />
+
 
       {/* Summary strip */}
       {!loading && !error && repositories.length > 0 && (
@@ -349,9 +356,15 @@ export const RepositoriesPage: React.FC = () => {
         <EmptyState
           icon={<Layers className="w-6 h-6" />}
           title="No repositories connected"
-          description="No repositories are registered in the SecurePR backend. Connect a GitFork repository to begin security analysis."
+          description="No repositories are registered in the Vigil backend. Connect your GitHub App installation to begin security analysis."
+          action={
+            <Button variant="primary" size="sm" onClick={() => navigate('/connect')}>
+              Connect GitHub
+            </Button>
+          }
         />
       )}
+
 
       {!loading && !error && processed.length === 0 && repositories.length > 0 && (
         <EmptyState

@@ -1,0 +1,344 @@
+{
+  "repository": "IlIGODIlI/Bizzare",
+  "commit_sha": "a6583a8a003637b1706898694b9507b14cd0ebe6",
+  "generated_at": "2026-10-06T16:51:05.964386+00:00",
+  "context_schema_version": "1.0",
+  "repolens_version": "1.0",
+  "files": {
+    "SecretFont.py": {
+      "path": "SecretFont.py",
+      "language": "python",
+      "size": 43851,
+      "symbols": [
+        {
+          "name": "find_system_font",
+          "kind": "function",
+          "line_number": 79,
+          "docstring": "Locate a usable TTF font on the system without user interaction.\n\nSearches the Windows Fonts directory first, then common cross-platform\nlocations. Returns the first font found that contains the required\nvisual glyphs.",
+          "args": []
+        },
+        {
+          "name": "new_salt",
+          "kind": "function",
+          "line_number": 155,
+          "docstring": "Create a fresh 128-bit profile salt.",
+          "args": []
+        },
+        {
+          "name": "derive_master_key",
+          "kind": "function",
+          "line_number": 160,
+          "docstring": "Convert the user's PIN into a 256-bit key.\n\nThe PIN itself is NOT used as the mapping key.",
+          "args": [
+            "pin",
+            "salt"
+          ]
+        },
+        {
+          "name": "prf_stream",
+          "kind": "function",
+          "line_number": 184,
+          "docstring": "Expand HMAC-SHA256 into deterministic pseudorandom bytes.",
+          "args": [
+            "key",
+            "domain",
+            "length"
+          ]
+        },
+        {
+          "name": "uniform_index",
+          "kind": "function",
+          "line_number": 201,
+          "docstring": "Unbiased deterministic integer in [0, upper_bound).",
+          "args": [
+            "stream",
+            "upper_bound",
+            "offset"
+          ]
+        },
+        {
+          "name": "generate_mapping",
+          "kind": "function",
+          "line_number": 218,
+          "docstring": "Generate a deterministic one-to-one mapping.\n\nSame:\n    master key + mapping ID\ngives the same mapping.\n\nDifferent:\n    key or mapping ID\ngives a different mapping.",
+          "args": [
+            "master_key",
+            "mapping_id"
+          ]
+        },
+        {
+          "name": "reverse_mapping",
+          "kind": "function",
+          "line_number": 254,
+          "docstring": "Create the inverse mapping: visual -> normal.",
+          "args": [
+            "mapping"
+          ]
+        },
+        {
+          "name": "find_unicode_cmaps",
+          "kind": "function",
+          "line_number": 263,
+          "docstring": "Return all Unicode cmap subtables.",
+          "args": [
+            "font"
+          ]
+        },
+        {
+          "name": "get_glyph_for_character",
+          "kind": "function",
+          "line_number": 279,
+          "docstring": "Find the glyph name for a character.\n\nSearch every Unicode cmap table because fonts can contain several\nsubtables (Windows Unicode, Unicode BMP, format 4, format 12, etc.).",
+          "args": [
+            "cmap_tables",
+            "character"
+          ]
+        },
+        {
+          "name": "remap_font",
+          "kind": "function",
+          "line_number": 301,
+          "docstring": "Create a TTF where A-Z render using the glyphs belonging to the\ncorresponding visual source characters.\n\nExample:\n    mapping[\"A\"] == \"@\"\n\nmeans:\n    Unicode A -> glyph normally used for @",
+          "args": [
+            "base_font_path",
+            "output_path",
+            "mapping",
+            "family_name"
+          ]
+        },
+        {
+          "name": "verify_generated_font",
+          "kind": "function",
+          "line_number": 376,
+          "docstring": "Verify the actual saved TTF, not merely the in-memory font.\n\nThis catches the class of bug where a font saves successfully but the\ndesired Unicode mappings aren't actually present after reload.",
+          "args": [
+            "font_path",
+            "mapping"
+          ]
+        },
+        {
+          "name": "BizzareApp",
+          "kind": "class",
+          "line_number": 464,
+          "docstring": null,
+          "args": null
+        },
+        {
+          "name": "BizzareApp.__init__",
+          "kind": "method",
+          "line_number": 466,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp._detect_system_font",
+          "kind": "method",
+          "line_number": 498,
+          "docstring": "Auto-detect a usable system font.",
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp._make_label",
+          "kind": "method",
+          "line_number": 508,
+          "docstring": "Create a themed label.",
+          "args": [
+            "self",
+            "parent",
+            "text",
+            "font",
+            "fg"
+          ]
+        },
+        {
+          "name": "BizzareApp._make_entry",
+          "kind": "method",
+          "line_number": 519,
+          "docstring": "Create a themed entry.",
+          "args": [
+            "self",
+            "parent",
+            "textvariable",
+            "width",
+            "show",
+            "state",
+            "font"
+          ]
+        },
+        {
+          "name": "BizzareApp._make_button",
+          "kind": "method",
+          "line_number": 543,
+          "docstring": "Create a themed button.",
+          "args": [
+            "self",
+            "parent",
+            "text",
+            "command",
+            "accent"
+          ]
+        },
+        {
+          "name": "BizzareApp._make_section_header",
+          "kind": "method",
+          "line_number": 570,
+          "docstring": "Create a section header label.",
+          "args": [
+            "self",
+            "parent",
+            "text"
+          ]
+        },
+        {
+          "name": "BizzareApp._build_ui",
+          "kind": "method",
+          "line_number": 585,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp._switch_tab",
+          "kind": "method",
+          "line_number": 669,
+          "docstring": null,
+          "args": [
+            "self",
+            "tab_id"
+          ]
+        },
+        {
+          "name": "BizzareApp._build_generate_tab",
+          "kind": "method",
+          "line_number": 694,
+          "docstring": null,
+          "args": [
+            "self",
+            "parent"
+          ]
+        },
+        {
+          "name": "BizzareApp._build_decipher_tab",
+          "kind": "method",
+          "line_number": 913,
+          "docstring": null,
+          "args": [
+            "self",
+            "parent"
+          ]
+        },
+        {
+          "name": "BizzareApp._copy_salt",
+          "kind": "method",
+          "line_number": 1057,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.new_salt",
+          "kind": "method",
+          "line_number": 1062,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.browse_font",
+          "kind": "method",
+          "line_number": 1075,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.validate_profile",
+          "kind": "method",
+          "line_number": 1101,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.generate_mapping",
+          "kind": "method",
+          "line_number": 1139,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.populate_mapping_table",
+          "kind": "method",
+          "line_number": 1178,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.clear_mapping_table",
+          "kind": "method",
+          "line_number": 1191,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp.create_font",
+          "kind": "method",
+          "line_number": 1195,
+          "docstring": null,
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp._do_decipher",
+          "kind": "method",
+          "line_number": 1309,
+          "docstring": "Reverse-map cipher text back to plaintext.",
+          "args": [
+            "self"
+          ]
+        },
+        {
+          "name": "BizzareApp._clear_decipher",
+          "kind": "method",
+          "line_number": 1371,
+          "docstring": "Clear both text areas in the decipher tab.",
+          "args": [
+            "self"
+          ]
+        }
+      ],
+      "imports": [
+        "__future__.annotations",
+        "hashlib",
+        "hmac",
+        "os",
+        "secrets",
+        "subprocess",
+        "sys",
+        "pathlib.Path",
+        "tkinter",
+        "tkinter.ttk",
+        "tkinter.filedialog",
+        "tkinter.messagebox",
+        "fontTools.ttLib.TTFont",
+        "fontTools.ttLib.TTFont"
+      ]
+    }
+  }
+}

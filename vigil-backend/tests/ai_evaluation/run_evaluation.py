@@ -49,7 +49,7 @@ def generate_markdown_report(results: List[ReviewEvaluationResult], is_live: boo
     table_content = "\n".join(table_lines)
 
     mode_notice = (
-        "**Execution Mode**: LIVE API EVALUATION (Direct Qwen endpoint call)"
+        "**Execution Mode**: LIVE API EVALUATION (Configured AI gateway endpoint)"
         if is_live
         else "**Execution Mode**: SIMULATION HARNESS (Deterministic mock baseline — AI_API_KEY not configured in environment)"
     )
@@ -147,7 +147,7 @@ async def main():
     fixtures = get_all_fixtures()
 
     if config["api_key_configured"]:
-        print("Using LIVE configured AIModelGateway (Qwen endpoint)...")
+        print("Using LIVE configured AIModelGateway endpoint...")
         engine = ReviewEngine(gateway=ai_gateway)
         is_live = True
     else:

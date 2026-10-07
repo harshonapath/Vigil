@@ -54,14 +54,20 @@ export const PROverview: React.FC<PROverviewProps> = ({ pr, repositoryName, revi
               <FileCode className="w-3.5 h-3.5" />
               {meta.files_changed} files
             </span>
-            <span className="flex items-center text-emerald-400">
-              <Plus className="w-3.5 h-3.5" />
-              {meta.additions}
-            </span>
-            <span className="flex items-center text-red-400">
-              <Minus className="w-3.5 h-3.5" />
-              {meta.deletions}
-            </span>
+            {meta.additions > 0 || meta.deletions > 0 ? (
+              <>
+                <span className="flex items-center text-emerald-400">
+                  <Plus className="w-3.5 h-3.5" />
+                  {meta.additions}
+                </span>
+                <span className="flex items-center text-red-400">
+                  <Minus className="w-3.5 h-3.5" />
+                  {meta.deletions}
+                </span>
+              </>
+            ) : (
+              <span className="text-slate-500 italic text-[11px]">Diff stats unavailable</span>
+            )}
           </div>
         </div>
         <h1 className="text-xl font-bold text-slate-100 leading-snug">{pr.title}</h1>

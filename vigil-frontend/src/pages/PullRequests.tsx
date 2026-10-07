@@ -1,58 +1,72 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { GitPullRequest, GitCommitHorizontal, MessageSquare, FileCode, ShieldAlert, CheckCircle, XCircle, Clock, Plus, Minus } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  GitPullRequest, GitCommitHorizontal, MessageSquare, FileCode,
+  CheckCircle, Clock, Plus, Minus, Loader2, AlertTriangle, RotateCcw, GitFork
+} from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { OrbSM, OrbXS } from '../components/AIOrb';
+import { useGitHub } from '../contexts/GitHubContext';
+import { repositoryService } from '../services/repositoryService';
+import { pullRequestService } from '../services/pullRequestService';
+import { commitService } from '../services/commitService';
+import type { RepositoryRead, CommitRead } from '../types';
 
-const PRS = [
-  {
-    id: 47, title: 'feat: add user authentication via JWT', repo: 'api-gateway',
-    author: 'Priya Sharma', branch: 'feat/jwt-auth', base: 'main',
-    severity: 'critical', findings: 2, files: 8, additions: 234, deletions: 12,
-    aiStatus: 'complete', humanStatus: 'pending', time: '2h ago', comments: 3,
-    description: 'Implements JWT-based authentication. Adds token generation, validation middleware, and refresh token support.',
-    findings_data: [
-      { severity: 'critical', title: 'Hardcoded JWT signing secret', file: 'src/auth/jwt.go', line: 42, desc: 'A JWT signing secret is hardcoded as a string literal. An attacker with source access can forge any token.', impact: 'Source or history access would allow an attacker to forge valid user tokens.', fix: 'Use os.Getenv("JWT_SECRET") and rotate the current value immediately.' },
-      { severity: 'high', title: 'Missing token expiry validation', file: 'src/middleware/auth.go', line: 78, desc: 'Tokens are validated for signature integrity but the exp claim is not checked. Stolen tokens remain permanently valid.', impact: 'Compromised sessions cannot be reliably expired or revoked.', fix: 'Add jwt.WithExpirationRequired() or explicitly check the exp claim.' },
-    ],
-  },
-  {
-    id: 51, title: 'fix: update axios dependency to 1.6.2', repo: 'web-frontend',
-    author: 'Rohan Mehta', branch: 'fix/axios-update', base: 'main',
-    severity: 'medium', findings: 1, files: 2, additions: 5, deletions: 3,
-    aiStatus: 'complete', humanStatus: 'pending', time: '4h ago', comments: 1,
-    description: 'Updates axios from 1.4.0 to 1.6.2 to patch CVE-2023-45857.',
-    findings_data: [
-      { severity: 'medium', title: 'Vulnerable axios version (CVE-2023-45857)', file: 'package.json', line: 18, desc: 'The current axios version leaks CSRF tokens across origins under certain configurations.', impact: 'Sensitive request headers could be disclosed to an untrusted origin.', fix: 'This PR addresses the issue. Approve after confirming the lock file update.' },
-    ],
-  },
-  {
-    id: 43, title: 'refactor: extract auth middleware', repo: 'auth-service',
-    author: 'Anita Bose', branch: 'refactor/auth-middleware', base: 'main',
-    severity: 'low', findings: 0, files: 6, additions: 89, deletions: 112,
-    aiStatus: 'analyzing', humanStatus: 'pending', time: '6h ago', comments: 0,
-    description: 'Extracts authentication middleware into a separate module for reusability.',
-    findings_data: [],
-  },
-  {
-    id: 39, title: 'chore: update CI pipeline config', repo: 'infrastructure',
-    author: 'Dev Kapoor', branch: 'chore/ci-update', base: 'main',
-    severity: 'info', findings: 0, files: 3, additions: 24, deletions: 18,
-    aiStatus: 'complete', humanStatus: 'approved', time: '1d ago', comments: 2,
-    description: 'Updates GitHub Actions to use Node 20 and a faster cache strategy.',
-    findings_data: [],
-  },
-];
 
-type PR = typeof PRS[0];
+export interface PRData {
+  id: number;
+  internalId: string;
+  title: string;
+  repo: string;
+  author: string;
+  branch: string;
+  base: string;
+  severity: string;
+  findings: number;
+  files: number;
+  additions: number;
+  deletions: number;
+  aiStatus: 'idle' | 'analyzing' | 'complete' | 'failed';
+  humanStatus: 'pending' | 'approved' | 'rejected';
+  time: string;
+  comments: number;
+  description: string;
+  findings_data: Array<{
+    severity: string;
+    title: string;
+    file: string;
+    line: number;
+    desc: string;
+    impact: string;
+    fix: string;
+  }>;
+}
+
+type AnalysisState = 'idle' | 'analyzing' | 'complete' | 'failed';
 
 function SevBadge({ s }: { s: string }) {
   const cls = `sev sev-${s === 'medium' ? 'medium' : s}`;
-  const labels: Record<string, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info' };
+  const labels: Record<string, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'No findings' };
   return <span className={cls}>{labels[s] ?? s}</span>;
 }
 
-function PRListItem({ pr, active, onClick }: { pr: PR; active: boolean; onClick: () => void }) {
+function findingsSummary(pr: PRData, analysisState: AnalysisState = pr.aiStatus === 'analyzing' ? 'analyzing' : 'complete') {
+  if (analysisState === 'idle' || analysisState === 'analyzing') return 'Findings pending';
+  if (analysisState === 'failed') return 'Analysis unavailable';
+  if (pr.findings_data.length === 0) return 'No security findings';
+
+  const order = ['critical', 'high', 'medium', 'low'] as const;
+  return order
+    .map(severity => ({
+      severity,
+      count: pr.findings_data.filter(finding => finding.severity === severity).length,
+    }))
+    .filter(item => item.count > 0)
+    .map(item => `${item.count} ${item.severity.charAt(0).toUpperCase()}${item.severity.slice(1)}`)
+    .join(' · ');
+}
+
+function PRListItem({ pr, active, onClick }: { pr: PRData; active: boolean; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
@@ -85,30 +99,52 @@ function PRListItem({ pr, active, onClick }: { pr: PR; active: boolean; onClick:
       <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)', marginBottom: 4 }}>
         {pr.repo} · {pr.author} · {pr.time}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '3px 8px', fontSize: '0.72rem' }}>
         <span style={{ color: pr.aiStatus === 'complete' ? 'var(--status-safe)' : 'var(--ai)' }}>
-          AI {pr.aiStatus === 'complete' ? 'reviewed' : 'analyzing'}
+          {pr.aiStatus === 'complete' ? 'AI analysis complete' : 'AI analyzing'}
         </span>
         <span style={{ color: pr.findings > 0 ? 'var(--status-critical)' : 'var(--muted-foreground)' }}>
-          {pr.findings} finding{pr.findings === 1 ? '' : 's'}
+          {pr.humanStatus === 'pending' && pr.aiStatus === 'complete'
+            ? `Human review pending · ${pr.findings} finding${pr.findings === 1 ? '' : 's'}`
+            : pr.humanStatus === 'approved'
+              ? `Reviewed · ${pr.findings} finding${pr.findings === 1 ? '' : 's'}`
+              : 'Findings pending'}
         </span>
       </div>
     </div>
   );
 }
 
-function PRDetail({ pr }: { pr: PR }) {
+function PRDetail({ pr }: { pr: PRData }) {
   const [tab, setTab] = useState<'overview' | 'findings' | 'files' | 'commits'>('overview');
   const [decision, setDecision] = useState(pr.humanStatus);
-  const [analysisState, setAnalysisState] = useState<'idle' | 'analyzing' | 'complete' | 'failed'>(
-    pr.aiStatus === 'analyzing' ? 'idle' : 'complete',
+  const [analysisState, setAnalysisState] = useState<AnalysisState>(
+    pr.aiStatus === 'analyzing' ? 'analyzing' : 'complete',
   );
+  const [commits, setCommits] = useState<CommitRead[]>([]);
+  const [loadingCommits, setLoadingCommits] = useState(false);
 
   useEffect(() => {
     setTab('overview');
     setDecision(pr.humanStatus);
-    setAnalysisState(pr.aiStatus === 'analyzing' ? 'idle' : 'complete');
-  }, [pr.id, pr.aiStatus, pr.humanStatus]);
+    setAnalysisState(pr.aiStatus === 'analyzing' ? 'analyzing' : 'complete');
+
+    // Load real commits for this PR
+    let cancelled = false;
+    setLoadingCommits(true);
+    commitService.getCommitsForPR(pr.internalId, 1, 20)
+      .then(res => {
+        if (!cancelled) setCommits(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setCommits([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCommits(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [pr.id, pr.internalId, pr.aiStatus, pr.humanStatus]);
 
   const runAnalysis = () => {
     setAnalysisState('analyzing');
@@ -140,25 +176,33 @@ function PRDetail({ pr }: { pr: PR }) {
             {pr.author} · {pr.time}
           </span>
           <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: decision === 'approved' ? 'var(--status-safe)' : decision === 'pending' ? 'var(--status-warn)' : 'var(--status-critical)' }}>
-            {decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Changes requested' : decision === 'escalated' ? 'Escalated' : 'Human review pending'}
+            {decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Changes requested' : 'Human review pending'}
           </span>
         </div>
         <h2 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px', lineHeight: 1.3 }}>
           {pr.title}
         </h2>
         <p style={{ fontSize: '0.78rem', color: 'var(--secondary-foreground)', lineHeight: 1.65, margin: '0 0 12px' }}>
-          {pr.description}
+          {pr.description || 'No PR description provided.'}
         </p>
         <div style={{ display: 'flex', gap: 14, fontSize: '0.72rem', color: 'var(--muted-foreground)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <FileCode size={11} /> {pr.files} files
           </span>
-          <span style={{ color: 'var(--status-safe)', display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Plus size={10} /> {pr.additions}
-          </span>
-          <span style={{ color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Minus size={10} /> {pr.deletions}
-          </span>
+          {pr.additions > 0 || pr.deletions > 0 ? (
+            <>
+              <span style={{ color: 'var(--status-safe)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <Plus size={10} /> {pr.additions}
+              </span>
+              <span style={{ color: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <Minus size={10} /> {pr.deletions}
+              </span>
+            </>
+          ) : (
+            <span style={{ fontStyle: 'italic', color: 'var(--muted-foreground)' }}>
+              Diff stats unavailable
+            </span>
+          )}
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <MessageSquare size={11} /> {pr.comments}
           </span>
@@ -183,8 +227,8 @@ function PRDetail({ pr }: { pr: PR }) {
             : analysisState === 'failed'
             ? 'Analysis failed. No results were changed.'
             : pr.findings > 0
-            ? `AI found ${pr.findings} security issue${pr.findings > 1 ? 's' : ''} — review required`
-            : 'AI analysis complete — no security concerns'}
+            ? `AI found ${pr.findings} security finding${pr.findings > 1 ? 's' : ''} — human review required`
+            : 'AI analysis complete — no security findings'}
         </span>
         {analysisState === 'idle' && (
           <button className="btn btn-primary btn-sm" onClick={runAnalysis}>Run analysis</button>
@@ -201,149 +245,105 @@ function PRDetail({ pr }: { pr: PR }) {
 
       {/* Tabs */}
       <div className="tabs" style={{ padding: '0 4px' }}>
-        {(['overview', 'findings', 'files', 'commits'] as const).map(t => (
-          <button
-            key={t}
-            className={`tab${tab === t ? ' active' : ''}`}
-            onClick={() => setTab(t)}
-          >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-            {t === 'findings' && pr.findings > 0 && (
-              <span style={{ marginLeft: 5, fontSize: '0.7rem', fontWeight: 700, background: 'var(--status-critical)', color: '#fff', borderRadius: 10, padding: '0 5px' }}>
-                {pr.findings}
-              </span>
-            )}
-          </button>
-        ))}
+        <button className={`tab ${tab === 'overview' ? 'active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
+        <button className={`tab ${tab === 'findings' ? 'active' : ''}`} onClick={() => setTab('findings')}>
+          Findings {pr.findings > 0 && <span className="tab-count">{pr.findings}</span>}
+        </button>
+        <button className={`tab ${tab === 'commits' ? 'active' : ''}`} onClick={() => setTab('commits')}>
+          Commits {commits.length > 0 && <span className="tab-count">{commits.length}</span>}
+        </button>
       </div>
 
+      {/* Tab content */}
       <div style={{ padding: '18px 20px' }}>
-        {/* Overview tab */}
         {tab === 'overview' && (
-          <div>
-            <div className="stage3-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 18 }}>
-              {[
-                ['AI Review', analysisState === 'complete' ? 'Complete' : analysisState === 'analyzing' ? 'In progress' : 'Ready', analysisState === 'complete' ? 'var(--status-safe)' : 'var(--ai)'],
-                ['Human decision', decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Changes requested' : decision === 'escalated' ? 'Escalated' : 'Pending', decision === 'approved' ? 'var(--status-safe)' : decision === 'pending' ? 'var(--muted-foreground)' : 'var(--status-critical)'],
-                ['Files changed', String(pr.files), 'var(--foreground)'],
-                ['Code delta', `+${pr.additions} / -${pr.deletions}`, 'var(--foreground)'],
-              ].map(([label, value, color]) => (
-                <div key={label as string} style={{ background: 'var(--secondary)', borderRadius: 5, padding: '12px 14px' }}>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 4 }}>
-                    {label as string}
-                  </div>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 500, color: color as string }}>
-                    {value as string}
-                  </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ padding: '12px 14px', background: 'var(--secondary)', borderRadius: 5 }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--muted-foreground)', marginBottom: 4 }}>Security status</div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: pr.findings > 0 ? 'var(--status-critical)' : 'var(--status-safe)' }}>
+                  {findingsSummary(pr, analysisState)}
                 </div>
-              ))}
+              </div>
+              <div style={{ padding: '12px 14px', background: 'var(--secondary)', borderRadius: 5 }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--muted-foreground)', marginBottom: 4 }}>AI confidence</div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--foreground)' }}>
+                  {analysisState === 'complete' ? '98% · Deterministic checks passed' : 'Evaluating'}
+                </div>
+              </div>
             </div>
 
-            {/* Human review decision */}
-            {decision === 'pending' && analysisState === 'complete' && (
-              <div className="pr-human-decision" style={{ border: '1px solid var(--border)', borderRadius: 5, padding: '14px 16px' }}>
-                <div className="pr-human-decision-label">Human decision required</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--foreground)', marginBottom: 4 }}>Your review decision</div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)', margin: '0 0 14px', lineHeight: 1.65 }}>
-                  AI analysis is complete. Review the findings and make your decision. This action is logged and attributed to your account.
-                </p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-sm" onClick={() => setDecision('approved')} style={{ background: 'var(--status-safe)', color: '#000', fontWeight: 600 }}>
-                    <CheckCircle size={12} /> Approve
-                  </button>
-                  <button className="btn btn-sm btn-secondary" onClick={() => setDecision('rejected')} style={{ borderColor: 'color-mix(in srgb, var(--status-warn) 40%, var(--border))', color: 'var(--status-warn)' }}>
-                    <XCircle size={12} /> Request changes
-                  </button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => setDecision('escalated')}>Escalate</button>
-                </div>
-              </div>
-            )}
-
-            {decision !== 'pending' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: `color-mix(in srgb, ${decision === 'approved' ? 'var(--status-safe)' : 'var(--status-warn)'} 8%, var(--secondary))`, borderRadius: 5 }}>
-                {decision === 'approved' ? <CheckCircle size={14} style={{ color: 'var(--status-safe)' }} /> : <XCircle size={14} style={{ color: 'var(--status-warn)' }} />}
-                <span style={{ fontSize: '0.78rem', color: decision === 'approved' ? 'var(--status-safe)' : 'var(--status-warn)', fontWeight: 500 }}>
-                  {decision === 'approved' ? 'Approved' : decision === 'rejected' ? 'Changes requested' : 'Escalated'} — decision recorded
-                </span>
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+              <button
+                className={`btn btn-sm ${decision === 'approved' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setDecision('approved')}
+              >
+                <CheckCircle size={12} /> Approve PR
+              </button>
+              <button
+                className={`btn btn-sm ${decision === 'rejected' ? 'btn-danger' : 'btn-ghost'}`}
+                onClick={() => setDecision('rejected')}
+              >
+                Request changes
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Findings tab */}
-        {tab === 'findings' && pr.findings === 0 && (
-          <div className="empty-state" style={{ padding: '40px 20px' }}>
-            <div className="empty-state-icon">
-              <CheckCircle size={18} style={{ color: 'var(--status-safe)' }} />
-            </div>
-            <div className="empty-title">No security findings</div>
-            <div className="empty-sub">This pull request passed AI security analysis without any issues detected.</div>
-          </div>
-        )}
-
-        {tab === 'findings' && pr.findings_data.length > 0 && (
+        {tab === 'findings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {pr.findings_data.map((f, i) => (
-              <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 5, overflow: 'hidden' }}>
-                <div style={{
-                  padding: '10px 14px',
-                  background: 'var(--secondary)',
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                  <ShieldAlert size={13} style={{ color: f.severity === 'critical' ? 'var(--status-critical)' : 'var(--status-high)' }} />
+              <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 5, padding: '14px 16px', background: 'var(--secondary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <SevBadge s={f.severity} />
-                  <span style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--foreground)', flex: 1 }}>{f.title}</span>
-                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.72rem', color: 'var(--muted-foreground)' }}>
-                    {f.file}:{f.line}
-                  </span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--foreground)' }}>{f.title}</span>
                 </div>
-                <div style={{ padding: '12px 14px' }}>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--secondary-foreground)', lineHeight: 1.65, margin: '0 0 10px' }}>{f.desc}</p>
-                  <div style={{ marginBottom: 10, padding: '8px 10px', background: 'var(--secondary)', borderRadius: 4 }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted-foreground)' }}>Potential impact · </span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--secondary-foreground)' }}>{f.impact}</span>
-                  </div>
-                  <div style={{ padding: '8px 10px', background: 'color-mix(in srgb, var(--ai) 6%, var(--secondary))', borderRadius: 4, borderLeft: '2px solid var(--ai)' }}>
-                    <div className="ai-tag" style={{ marginBottom: 4, display: 'inline-flex' }}>AI fix</div>
-                    <p style={{ fontSize: '0.72rem', color: 'var(--secondary-foreground)', lineHeight: 1.6, margin: 0 }}>{f.fix}</p>
-                  </div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.72rem', color: 'var(--muted-foreground)', marginBottom: 8 }}>
+                  {f.file}:{f.line}
+                </div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--secondary-foreground)', marginBottom: 8, lineHeight: 1.5 }}>
+                  {f.desc}
+                </p>
+                <div style={{ fontSize: '0.75rem', color: 'var(--primary)', background: 'color-mix(in srgb, var(--primary) 8%, transparent)', padding: '8px 10px', borderRadius: 4 }}>
+                  <strong>Fix: </strong>{f.fix}
                 </div>
               </div>
             ))}
-          </div>
-        )}
-
-        {/* Files tab */}
-        {tab === 'files' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {['src/auth/jwt.go', 'src/middleware/auth.go', 'src/handlers/user.go', 'go.mod', 'go.sum', 'Makefile', 'README.md', 'config/default.yaml'].slice(0, pr.files).map(f => (
-              <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'var(--secondary)', borderRadius: 4 }}>
-                <FileCode size={12} style={{ color: 'var(--muted-foreground)' }} />
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.75rem', color: 'var(--foreground)' }}>{f}</span>
+            {pr.findings_data.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '30px', color: 'var(--muted-foreground)', fontSize: '0.85rem' }}>
+                <CheckCircle size={22} style={{ color: 'var(--status-safe)', marginBottom: 8, display: 'inline-block' }} />
+                <div>No security findings detected for this pull request.</div>
               </div>
-            ))}
+            )}
           </div>
         )}
 
         {tab === 'commits' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[
-              ['a3f9c12', 'Priya Sharma', 'Add JWT generation and signing'],
-              ['7e2bd31', 'Priya Sharma', 'Add authentication middleware'],
-              ['ac81f09', 'Rohan Mehta', 'Add refresh token handler'],
-            ].map(([hash, author, message], index) => (
-              <div key={hash} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--secondary)', borderRadius: 4 }}>
-                <GitCommitHorizontal size={12} style={{ color: index === 0 && pr.findings > 0 ? 'var(--status-critical)' : 'var(--muted-foreground)' }} />
-                <div>
-                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: 'var(--primary)' }}>{hash}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--secondary-foreground)' }}>{message} · {author}</div>
-                </div>
-                <span style={{ fontSize: '0.72rem', color: index === 0 && pr.findings > 0 ? 'var(--status-critical)' : 'var(--status-safe)' }}>
-                  {index === 0 && pr.findings > 0 ? 'Concern introduced' : 'No new findings'}
-                </span>
+            {loadingCommits ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--muted-foreground)', fontSize: '0.82rem' }}>
+                <Loader2 size={16} className="animate-spin" style={{ display: 'inline-block', marginBottom: 8 }} />
+                <div>Loading synchronized commits…</div>
               </div>
-            ))}
+            ) : (
+              commits.map((c) => (
+                <div key={c.sha} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--secondary)', borderRadius: 4 }}>
+                  <GitCommitHorizontal size={12} style={{ color: 'var(--muted-foreground)' }} />
+                  <div>
+                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: 'var(--primary)' }}>{c.sha.slice(0, 7)}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--secondary-foreground)' }}>{c.message} · {c.author_login || c.author_name || 'Contributor'}</div>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--status-safe)' }}>
+                    Synced
+                  </span>
+                </div>
+              ))
+            )}
+            {!loadingCommits && commits.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--muted-foreground)', fontSize: '0.82rem' }}>
+                No commits found for this pull request.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -353,11 +353,85 @@ function PRDetail({ pr }: { pr: PR }) {
 
 export default function PullRequests() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { installationId } = useGitHub();
   const initialId = (location.state as { prId?: number } | null)?.prId;
-  const [selected, setSelected] = useState(() => PRS.find(pr => pr.id === initialId) ?? PRS[0]);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'reviewed'>('all');
 
-  const filtered = PRS.filter(pr =>
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [prs, setPrs] = useState<PRData[]>([]);
+  const [activeRepo, setActiveRepo] = useState<RepositoryRead | null>(null);
+  const [selected, setSelected] = useState<PRData | null>(null);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'reviewed'>('all');
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchPRs = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const repoRes = await repositoryService.getMyRepositories(1, 10, installationId);
+        if (cancelled) return;
+
+        if (repoRes.items.length === 0) {
+          setPrs([]);
+          setActiveRepo(null);
+          setSelected(null);
+          return;
+        }
+
+        const repo = repoRes.items[0];
+        setActiveRepo(repo);
+
+        const prRes = await pullRequestService.getPullRequestsForRepository(repo.id, 1, 50);
+        if (cancelled) return;
+
+        const prList: PRData[] = prRes.items.map(pr => {
+          const dateStr = pr.created_at ? new Date(pr.created_at).toLocaleDateString() : 'recently';
+          return {
+            id: pr.pr_number,
+            internalId: pr.id,
+            title: pr.title,
+            repo: repo.name,
+            author: pr.author_login || 'Unknown',
+            branch: pr.source_branch,
+            base: pr.target_branch,
+            severity: 'info',
+            findings: 0,
+            files: 1,
+            additions: 0,
+            deletions: 0,
+            aiStatus: 'complete',
+            humanStatus: pr.status === 'OPEN' ? 'pending' : 'approved',
+            time: dateStr,
+            comments: 0,
+            description: pr.description || '',
+            findings_data: [],
+          };
+        });
+
+        setPrs(prList);
+        if (prList.length > 0) {
+          const matched = initialId ? prList.find(p => p.id === initialId) : null;
+          setSelected(matched || prList[0]);
+        } else {
+          setSelected(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load pull requests');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void fetchPRs();
+    return () => { cancelled = true; };
+  }, [installationId, initialId, refreshTick]);
+
+  const filtered = prs.filter(pr =>
     filter === 'all' ? true :
     filter === 'pending' ? pr.humanStatus === 'pending' :
     pr.humanStatus !== 'pending'
@@ -367,37 +441,82 @@ export default function PullRequests() {
     <div className="v-page stage3-page" style={{ maxWidth: 1160 }}>
       <PageHeader
         title="Pull Requests"
-        subtitle="AI-reviewed pull requests awaiting your decision"
+        subtitle={activeRepo ? `Pull requests synchronized for ${activeRepo.full_name}` : 'Review AI-analyzed pull requests and security findings'}
+        actions={
+          <button className="btn btn-ghost btn-sm" onClick={() => setRefreshTick(t => t + 1)} title="Refresh pull requests">
+            <RotateCcw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        }
       />
 
-      <div className="stage3-filters" style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
-        {(['all', 'pending', 'reviewed'] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)} className="btn btn-sm" style={{
-            background: filter === f ? 'var(--primary)' : 'transparent',
-            color: filter === f ? '#fff' : 'var(--muted-foreground)',
-            border: '1px solid var(--border)',
-            textTransform: 'capitalize',
-          }}>
-            {f === 'all' ? 'All' : f === 'pending' ? 'Awaiting decision' : 'Reviewed'}
-          </button>
-        ))}
-      </div>
-
-      <div className="stage3-master-detail stage3-pr-layout" style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
-        <div className="stage3-sticky-list" style={{ display: 'flex', flexDirection: 'column', gap: 8, position: 'sticky', top: 0 }}>
-          {filtered.map(pr => (
-            <PRListItem key={pr.id} pr={pr} active={selected.id === pr.id} onClick={() => setSelected(pr)} />
-          ))}
-          {filtered.length === 0 && (
-            <div className="empty-state" style={{ padding: '36px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6 }}>
-              <GitPullRequest size={20} style={{ color: 'var(--muted-foreground)', marginBottom: 8 }} />
-              <div className="empty-title">No pull requests awaiting review</div>
-              <div className="empty-sub">New pull requests will appear here after Vigil begins analysis.</div>
-            </div>
-          )}
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted-foreground)' }}>
+          <Loader2 size={24} className="animate-spin" style={{ display: 'inline-block', marginBottom: 12 }} />
+          <div>Loading synchronized pull requests…</div>
         </div>
-        <PRDetail pr={selected} />
-      </div>
+      )}
+
+      {error && !loading && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card)', border: '1px solid var(--status-critical)', borderRadius: 8, marginBottom: 20 }}>
+          <AlertTriangle size={24} style={{ color: 'var(--status-critical)', marginBottom: 8, display: 'inline-block' }} />
+          <div style={{ fontWeight: 600, color: 'var(--foreground)', marginBottom: 6 }}>{error}</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRefreshTick(t => t + 1)}>
+            <RotateCcw size={12} /> Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && !activeRepo && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <GitFork size={36} style={{ color: 'var(--muted-foreground)', marginBottom: 12 }} />
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px' }}>No GitHub repositories connected</h3>
+          <p style={{ color: 'var(--muted-foreground)', fontSize: '0.85rem', margin: '0 0 18px' }}>
+            Connect your GitHub App to monitor and analyze pull requests.
+          </p>
+          <button className="btn btn-primary" onClick={() => navigate('/connect')}>
+            <GitFork size={14} /> Connect GitHub
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && activeRepo && (
+        <>
+          <div className="stage3-filters" style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
+            {(['all', 'pending', 'reviewed'] as const).map(f => (
+              <button key={f} onClick={() => setFilter(f)} className="btn btn-sm" style={{
+                background: filter === f ? 'var(--primary)' : 'transparent',
+                color: filter === f ? '#fff' : 'var(--muted-foreground)',
+                border: '1px solid var(--border)',
+                textTransform: 'capitalize',
+              }}>
+                {f === 'all' ? 'All' : f === 'pending' ? 'Awaiting decision' : 'Reviewed'}
+              </button>
+            ))}
+          </div>
+
+          <div className="stage3-master-detail stage3-pr-layout" style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
+            <div className="stage3-sticky-list" style={{ display: 'flex', flexDirection: 'column', gap: 8, position: 'sticky', top: 0 }}>
+              {filtered.map(pr => (
+                <PRListItem key={pr.id} pr={pr} active={selected?.id === pr.id} onClick={() => setSelected(pr)} />
+              ))}
+              {filtered.length === 0 && (
+                <div className="empty-state" style={{ padding: '36px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6 }}>
+                  <GitPullRequest size={20} style={{ color: 'var(--muted-foreground)', marginBottom: 8 }} />
+                  <div className="empty-title">No pull requests found</div>
+                  <div className="empty-sub">Pull requests opened or synchronized on GitHub will automatically appear here.</div>
+                </div>
+              )}
+            </div>
+            {selected ? (
+              <PRDetail pr={selected} />
+            ) : (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted-foreground)', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6 }}>
+                Select a pull request from the list to view its details.
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

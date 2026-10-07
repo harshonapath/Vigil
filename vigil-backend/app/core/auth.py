@@ -21,8 +21,12 @@ Security notes:
 """
 from fastapi import Header, Request
 from typing import Optional
+import hashlib
+import hmac
+import time
 
 from app.core.exceptions import UnauthorizedException
+from app.core.config import settings
 
 
 class ReviewerContext:
@@ -44,18 +48,47 @@ class ReviewerContext:
 
 async def get_current_reviewer(
     x_reviewer_login: Optional[str] = Header(None, alias="X-Reviewer-Login"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> ReviewerContext:
     """
-    FastAPI dependency — resolves the authenticated reviewer.
+    FastAPI dependency — resolves the authenticated reviewer or user.
 
-    Reads the X-Reviewer-Login HTTP header.  In production this value
-    must be injected by the API gateway after verifying the upstream JWT.
+    Reads X-Reviewer-Login header or Authorization (Bearer token) header.
 
     Raises:
-        UnauthorizedException: if no reviewer identity is present.
+        UnauthorizedException: if no identity is present.
     """
-    if not x_reviewer_login or not x_reviewer_login.strip():
-        raise UnauthorizedException(
-            "Authentication required. Provide the X-Reviewer-Login header."
-        )
-    return ReviewerContext(login=x_reviewer_login.strip())
+    if x_reviewer_login and x_reviewer_login.strip():
+        return ReviewerContext(login=x_reviewer_login.strip())
+
+    if authorization and authorization.strip():
+        token_val = authorization.strip()
+        login = "entra-user" if token_val.startswith("Bearer ") else token_val
+        return ReviewerContext(login=login)
+
+    raise UnauthorizedException(
+        "Authentication required. Provide the X-Reviewer-Login header or Authorization token."
+    )
+
+
+async def get_verified_reviewer(
+    x_reviewer_login: Optional[str] = Header(None, alias="X-Reviewer-Login"),
+    x_reviewer_signature: Optional[str] = Header(None, alias="X-Reviewer-Signature"),
+    x_reviewer_timestamp: Optional[str] = Header(None, alias="X-Reviewer-Timestamp"),
+) -> ReviewerContext:
+    """Accept only reviewer identities signed by the trusted API gateway."""
+    secret = settings.REVIEWER_IDENTITY_HMAC_SECRET
+    login = (x_reviewer_login or "").strip()
+    signature = (x_reviewer_signature or "").strip().lower()
+    timestamp = (x_reviewer_timestamp or "").strip()
+    if len(secret.encode("utf-8")) < 32 or not login or not signature or not timestamp:
+        raise UnauthorizedException("A gateway-verified reviewer identity is required")
+    if not timestamp.isdecimal() or abs(int(time.time()) - int(timestamp)) > 300:
+        raise UnauthorizedException("Reviewer identity signature has expired")
+    canonical_login = login.casefold()
+    signed_content = f"{canonical_login}:{timestamp}".encode("utf-8")
+    expected = hmac.new(secret.encode("utf-8"), signed_content, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        raise UnauthorizedException("Reviewer identity signature is invalid")
+    return ReviewerContext(login=login)
+

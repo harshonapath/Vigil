@@ -1,272 +1,381 @@
-import { Fragment, useState } from 'react';
-import { ShieldAlert, AlertTriangle, Info, CheckCircle, Code2, ArrowRight } from 'lucide-react';
-import { OrbXS } from '../components/AIOrb';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  ShieldAlert,
+  AlertTriangle,
+  Info,
+  CheckCircle,
+  Loader2,
+  RotateCcw,
+  GitFork,
+  Zap,
+  TriangleAlert,
+  Lock,
+  Layers,
+} from 'lucide-react';
 import PageHeader from '../components/PageHeader';
+import { useGitHub } from '../contexts/GitHubContext';
+import { repositoryService } from '../services/repositoryService';
+import { pullRequestService } from '../services/pullRequestService';
+import { findingService } from '../services/findingService';
+import { FindingCard } from '../components/findings/FindingCard';
+import type { FindingRead, RepositoryRead } from '../types';
 
-const findings = [
-  {
-    id: 'F-001', severity: 'critical', title: 'Hardcoded JWT signing secret',
-    category: 'A02:2021 – Cryptographic Failures',
-    file: 'src/auth/jwt.go', line: 42, repo: 'api-gateway', pr: 47,
-    status: 'open', timestamp: '2h ago',
-    description: 'A JWT signing secret ("supersecret123") is hardcoded as a string literal. This exposes the secret in version control history and makes rotation impossible without a code change.',
-    impact: 'An attacker who obtains the source code or git history can forge JWT tokens, effectively becoming any user in the system.',
-    fix: 'Move the secret to an environment variable (e.g. JWT_SECRET) and load it at runtime. Rotate the current secret immediately as it should be considered compromised.',
-    codeSnippet: 'var jwtSecret = []byte("supersecret123")',
-    fixSnippet: 'var jwtSecret = []byte(os.Getenv("JWT_SECRET"))',
-    aiConfidence: 99,
-  },
-  {
-    id: 'F-002', severity: 'critical', title: 'Missing token expiry validation',
-    category: 'A07:2021 – Identification and Authentication Failures',
-    file: 'src/middleware/auth.go', line: 78, repo: 'api-gateway', pr: 47,
-    status: 'open', timestamp: '2h ago',
-    description: 'JWT tokens are validated for signature integrity but the expiry claim (exp) is not checked. A stolen token remains valid indefinitely.',
-    impact: 'Stolen tokens cannot be invalidated. Users who report account compromise cannot be protected.',
-    fix: 'Add expiry validation using jwt.WithExpirationRequired() or manually check the exp claim after parsing.',
-    codeSnippet: 'token, err := jwt.Parse(tokenStr, keyFunc)',
-    fixSnippet: 'token, err := jwt.Parse(tokenStr, keyFunc, jwt.WithExpirationRequired())',
-    aiConfidence: 97,
-  },
-  {
-    id: 'F-003', severity: 'medium', title: 'Vulnerable axios version (CVE-2023-45857)',
-    category: 'A06:2021 – Vulnerable and Outdated Components',
-    file: 'package.json', line: 18, repo: 'web-frontend', pr: 51,
-    status: 'open', timestamp: '4h ago',
-    description: 'axios 1.4.0 is vulnerable to CVE-2023-45857, which allows sensitive headers to be leaked cross-origin via XSRF token.',
-    impact: 'CSRF tokens and authorization headers may be exposed to third-party origins in certain configurations.',
-    fix: 'Upgrade axios to version 1.6.2 or later. Run: npm install axios@latest',
-    codeSnippet: '"axios": "^1.4.0"',
-    fixSnippet: '"axios": "^1.6.2"',
-    aiConfidence: 100,
-  },
-  {
-    id: 'F-004', severity: 'low', title: 'Overly broad CORS configuration',
-    category: 'A05:2021 – Security Misconfiguration',
-    file: 'src/server/config.go', line: 23, repo: 'auth-service', pr: null,
-    status: 'acknowledged', timestamp: '1d ago',
-    description: 'CORS is configured to allow all origins (*). This is acceptable in development but should be restricted in production.',
-    impact: 'Low risk if deployment is isolated, but should be addressed before public exposure.',
-    fix: 'Replace the wildcard with an explicit list of allowed origins.',
-    codeSnippet: 'AllowOrigins: []string{"*"}',
-    fixSnippet: 'AllowOrigins: []string{"https://app.acme-corp.com"}',
-    aiConfidence: 82,
-  },
-];
-
-const severityConfig: Record<string, { icon: React.ElementType; color: string; label: string }> = {
-  critical: { icon: ShieldAlert, color: 'var(--severity-critical)', label: 'Critical' },
-  high: { icon: AlertTriangle, color: 'var(--severity-high)', label: 'High' },
-  medium: { icon: AlertTriangle, color: 'var(--severity-medium)', label: 'Medium' },
-  low: { icon: Info, color: 'var(--severity-low)', label: 'Low' },
-  info: { icon: Info, color: 'var(--severity-info)', label: 'Info' },
-};
+export interface FindingWithContext extends FindingRead {
+  repoName: string;
+  repoFullName: string;
+  prNumber: number;
+  prId: string;
+  prTitle: string;
+}
 
 export default function Findings() {
-  const [selected, setSelected] = useState<(typeof findings)[number] | null>(findings[0]);
-  const [filter, setFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+  const navigate = useNavigate();
+  const { installationId } = useGitHub();
 
-  const filtered = findings.filter(f => filter === 'all' || f.severity === filter);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [findings, setFindings] = useState<FindingWithContext[]>([]);
+  const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'PROMPT_INJECTION' | 'COMPLEXITY' | 'EDGE_CASE' | 'SECURITY_ASSUMPTION'>('all');
+  const [activeRepo, setActiveRepo] = useState<RepositoryRead | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
-  const cfg = severityConfig[selected?.severity ?? 'critical'];
-  const Icon = cfg.icon;
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFindings = async () => {
+      setLoading(true);
+      setError('');
+
+      try {
+        const repoRes = await repositoryService.getMyRepositories(1, 20, installationId);
+        if (cancelled) return;
+
+        if (repoRes.items.length === 0) {
+          setFindings([]);
+          setActiveRepo(null);
+          return;
+        }
+
+        const repo = repoRes.items[0];
+        setActiveRepo(repo);
+
+        const allFindings: FindingWithContext[] = [];
+
+        for (const r of repoRes.items) {
+          try {
+            const prRes = await pullRequestService.getPullRequestsForRepository(r.id, 1, 20);
+            if (cancelled) return;
+
+            for (const pr of prRes.items) {
+              try {
+                const fRes = await findingService.getFindingsForPR(pr.id);
+                for (const f of fRes.items) {
+                  allFindings.push({
+                    ...f,
+                    repoName: r.name,
+                    repoFullName: r.full_name,
+                    prNumber: pr.pr_number,
+                    prId: pr.id,
+                    prTitle: pr.title,
+                  });
+                }
+              } catch {
+                // PR has no findings yet; continue
+              }
+            }
+          } catch {
+            // continue
+          }
+        }
+
+        if (cancelled) return;
+        setFindings(allFindings);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load security findings');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadFindings();
+    return () => {
+      cancelled = true;
+    };
+  }, [installationId, refreshTick]);
+
+  // Filter findings
+  const filtered = findings.filter(f => {
+    const sevMatch =
+      severityFilter === 'all' || f.severity.toLowerCase() === severityFilter.toLowerCase();
+    const catMatch =
+      categoryFilter === 'all' || f.category.toUpperCase() === categoryFilter.toUpperCase();
+    return sevMatch && catMatch;
+  });
+
+  const severityCounts = {
+    critical: findings.filter(f => f.severity.toUpperCase() === 'CRITICAL').length,
+    high: findings.filter(f => f.severity.toUpperCase() === 'HIGH').length,
+    medium: findings.filter(f => f.severity.toUpperCase() === 'MEDIUM').length,
+    low: findings.filter(f => f.severity.toUpperCase() === 'LOW').length,
+  };
+
+  const categoryCounts = {
+    promptInjection: findings.filter(f => f.category.toUpperCase() === 'PROMPT_INJECTION').length,
+    complexity: findings.filter(f => f.category.toUpperCase() === 'COMPLEXITY').length,
+    edgeCase: findings.filter(f => f.category.toUpperCase() === 'EDGE_CASE').length,
+    securityAssumption: findings.filter(f => f.category.toUpperCase() === 'SECURITY_ASSUMPTION').length,
+  };
 
   return (
     <div className="stage3-page" style={{ padding: '32px 36px', maxWidth: '1200px' }}>
       <PageHeader
         title="Security Findings"
-        subtitle={`${findings.filter(f => f.status === 'open').length} open findings across ${new Set(findings.map(f => f.repo)).size} repositories`}
+        subtitle={
+          activeRepo
+            ? `${findings.length} findings detected across ${activeRepo.full_name} · Real-time AI security & code analysis`
+            : 'Security findings across connected repositories'
+        }
+        actions={
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setRefreshTick(t => t + 1)}
+            title="Refresh findings"
+          >
+            <RotateCcw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        }
       />
 
-      {/* Severity summary */}
-      <div className="stage3-severity-summary" style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-        {(['critical', 'high', 'medium', 'low'] as const).map(s => {
-          const count = findings.filter(f => f.severity === s).length;
-          const c = severityConfig[s];
-          const SummaryIcon = c.icon;
-          return (
-            <div key={s} className={`finding-summary-card severity-${s}`} style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '8px 14px', background: 'var(--card)',
-              border: '1px solid var(--border)', borderRadius: '6px',
-            }}>
-              <SummaryIcon size={14} style={{ color: c.color }} />
-              <span style={{ fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>{c.label}</span>
-              <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--foreground)', fontFamily: 'var(--font-mono)' }}>{count}</span>
-            </div>
-          );
-        })}
-      </div>
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted-foreground)' }}>
+          <Loader2 size={24} className="animate-spin" style={{ display: 'inline-block', marginBottom: 12 }} />
+          <div>Loading security findings from backend…</div>
+        </div>
+      )}
 
-      <div className="stage3-filters" style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-        {(['all', 'critical', 'high', 'medium', 'low'] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{
-            padding: '6px 14px', borderRadius: '6px', border: '1px solid var(--border)',
-            background: filter === f ? 'var(--primary)' : 'transparent',
-            color: filter === f ? '#fff' : 'var(--muted-foreground)',
-            fontSize: '0.8rem', cursor: 'pointer', textTransform: 'capitalize',
-          }}>{f}</button>
-        ))}
-      </div>
+      {error && !loading && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card)', border: '1px solid var(--status-critical)', borderRadius: 8, marginBottom: 20 }}>
+          <AlertTriangle size={24} style={{ color: 'var(--status-critical)', marginBottom: 8, display: 'inline-block' }} />
+          <div style={{ fontWeight: 600, color: 'var(--foreground)', marginBottom: 6 }}>{error}</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRefreshTick(t => t + 1)}>
+            <RotateCcw size={12} /> Retry
+          </button>
+        </div>
+      )}
 
-      <div className="stage3-master-detail" style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: '20px' }}>
-        {/* Findings list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {filtered.map((f, index) => {
-            const c = severityConfig[f.severity];
-            const FIcon = c.icon;
-            return (
-              <Fragment key={f.id}>
-                {(index === 0 || filtered[index - 1].severity !== f.severity) && (
-                  <div style={{ padding: '5px 2px 1px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: c.color }}>
-                    {c.label} severity
+      {!loading && !error && !activeRepo && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <GitFork size={36} style={{ color: 'var(--muted-foreground)', marginBottom: 12 }} />
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px' }}>
+            No GitHub repositories connected
+          </h3>
+          <p style={{ color: 'var(--muted-foreground)', fontSize: '0.85rem', margin: '0 0 18px' }}>
+            Connect a GitHub repository to begin automated security analysis and surface findings.
+          </p>
+          <button className="btn btn-primary" onClick={() => navigate('/connect')}>
+            <GitFork size={14} /> Connect GitHub
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && activeRepo && findings.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <CheckCircle size={36} style={{ color: 'var(--status-safe)', marginBottom: 12 }} />
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px' }}>
+            No security findings detected
+          </h3>
+          <p style={{ color: 'var(--muted-foreground)', fontSize: '0.85rem', margin: '0 0 18px' }}>
+            No security findings have been detected for {activeRepo.full_name}. Pull requests will be scanned automatically when opened or analyzed.
+          </p>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/pull-requests')}>
+            View Pull Requests
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && findings.length > 0 && (
+        <>
+          {/* Core Feature Category Tabs */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setCategoryFilter('all')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: categoryFilter === 'all' ? 600 : 400,
+                cursor: 'pointer',
+                background: categoryFilter === 'all' ? 'var(--secondary)' : 'transparent',
+                border: `1px solid ${categoryFilter === 'all' ? 'var(--border)' : 'transparent'}`,
+                color: categoryFilter === 'all' ? 'var(--foreground)' : 'var(--muted-foreground)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Layers size={13} /> All Categories ({findings.length})
+            </button>
+
+            <button
+              onClick={() => setCategoryFilter('PROMPT_INJECTION')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: categoryFilter === 'PROMPT_INJECTION' ? 600 : 400,
+                cursor: 'pointer',
+                background: categoryFilter === 'PROMPT_INJECTION' ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                border: `1px solid ${categoryFilter === 'PROMPT_INJECTION' ? 'rgba(239, 68, 68, 0.4)' : 'transparent'}`,
+                color: '#f87171',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <ShieldAlert size={13} /> Prompt Injection ({categoryCounts.promptInjection})
+            </button>
+
+            <button
+              onClick={() => setCategoryFilter('COMPLEXITY')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: categoryFilter === 'COMPLEXITY' ? 600 : 400,
+                cursor: 'pointer',
+                background: categoryFilter === 'COMPLEXITY' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                border: `1px solid ${categoryFilter === 'COMPLEXITY' ? 'rgba(245, 158, 11, 0.4)' : 'transparent'}`,
+                color: '#fbbf24',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Zap size={13} /> Complexity ({categoryCounts.complexity})
+            </button>
+
+            <button
+              onClick={() => setCategoryFilter('EDGE_CASE')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: categoryFilter === 'EDGE_CASE' ? 600 : 400,
+                cursor: 'pointer',
+                background: categoryFilter === 'EDGE_CASE' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                border: `1px solid ${categoryFilter === 'EDGE_CASE' ? 'rgba(6, 182, 212, 0.4)' : 'transparent'}`,
+                color: '#22d3ee',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <TriangleAlert size={13} /> Edge Cases ({categoryCounts.edgeCase})
+            </button>
+
+            <button
+              onClick={() => setCategoryFilter('SECURITY_ASSUMPTION')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: categoryFilter === 'SECURITY_ASSUMPTION' ? 600 : 400,
+                cursor: 'pointer',
+                background: categoryFilter === 'SECURITY_ASSUMPTION' ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
+                border: `1px solid ${categoryFilter === 'SECURITY_ASSUMPTION' ? 'rgba(168, 85, 247, 0.4)' : 'transparent'}`,
+                color: '#c084fc',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Lock size={13} /> Security Assumptions ({categoryCounts.securityAssumption})
+            </button>
+          </div>
+
+          {/* Severity summary pills */}
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+            {(['critical', 'high', 'medium', 'low'] as const).map(s => {
+              const count = severityCounts[s];
+              const active = severityFilter === s;
+              const color =
+                s === 'critical'
+                  ? 'var(--severity-critical)'
+                  : s === 'high'
+                  ? 'var(--severity-high)'
+                  : s === 'medium'
+                  ? 'var(--severity-medium)'
+                  : 'var(--severity-low)';
+
+              return (
+                <button
+                  key={s}
+                  onClick={() => setSeverityFilter(active ? 'all' : s)}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    background: 'var(--card)',
+                    border: `1px solid ${active ? color : 'var(--border)'}`,
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 150ms',
+                  }}
+                >
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--muted-foreground)', textTransform: 'capitalize' }}>
+                    {s}
                   </div>
-                )}
-                <div
-                className={`finding-list-card severity-${f.severity}${selected?.id === f.id ? ' selected' : ''}`}
-                onClick={() => setSelected(current => current?.id === f.id ? null : f)}
-                style={{
-                  padding: '14px 16px',
-                  background: selected?.id === f.id ? 'var(--secondary)' : 'var(--card)',
-                  border: `1px solid ${selected?.id === f.id ? `color-mix(in srgb, ${c.color} 30%, var(--border))` : 'var(--border)'}`,
-                  borderLeft: `2px solid ${selected?.id === f.id ? c.color : 'transparent'}`,
-                  borderRadius: '8px', cursor: 'pointer', transition: 'all 150ms',
+                  <div style={{ fontSize: '1.3rem', fontWeight: 700, color: count > 0 ? color : 'var(--muted-foreground)', fontFamily: 'var(--font-mono)' }}>
+                    {count}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Findings List using FindingCard with category-specific styles */}
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <Info size={24} style={{ color: 'var(--muted-foreground)', marginBottom: 8, display: 'inline-block' }} />
+              <div style={{ fontSize: '0.9rem', color: 'var(--foreground)', fontWeight: 500 }}>
+                No findings match the current filter criteria
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ marginTop: 12 }}
+                onClick={() => {
+                  setCategoryFilter('all');
+                  setSeverityFilter('all');
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                  <FIcon size={12} style={{ color: c.color }} />
-                  <span style={{ fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: c.color }}>{c.label}</span>
-                  <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--muted-foreground)' }}>{f.id}</span>
+                Clear Filters
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filtered.map(finding => (
+                <div key={finding.id}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--muted-foreground)', marginBottom: '4px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span>{finding.repoName}</span>
+                    <span>·</span>
+                    <span
+                      style={{ color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => navigate(`/pull-requests/${finding.prId}`)}
+                    >
+                      PR #{finding.prNumber} {finding.prTitle}
+                    </span>
+                  </div>
+                  <FindingCard finding={finding} />
                 </div>
-                <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--foreground)', marginBottom: '4px', lineHeight: '1.4' }}>{f.title}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--muted-foreground)', marginBottom: 5 }}>{f.file}:{f.line}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '0.7rem', color: 'var(--muted-foreground)' }}>
-                  <span>{f.repo} · {f.status}</span>
-                  <span>{f.timestamp}</span>
-                </div>
-                </div>
-              </Fragment>
-            );
-          })}
-
-          {filtered.length === 0 && (
-            <div style={{ padding: '40px', textAlign: 'center', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '8px' }}>
-              <CheckCircle size={24} style={{ color: 'var(--accent)', marginBottom: '8px' }} />
-              <div style={{ fontSize: '0.875rem', color: 'var(--foreground)' }}>No findings in this filter</div>
+              ))}
             </div>
           )}
-        </div>
-
-        {/* Finding detail */}
-        {selected ? <div className={`finding-detail severity-${selected.severity}`} style={{
-          background: 'var(--card)', border: '1px solid var(--border)',
-          borderRadius: '8px', overflow: 'hidden',
-        }}>
-          {/* Header */}
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                padding: '4px 10px',
-                background: `color-mix(in srgb, ${cfg.color} 12%, transparent)`,
-                border: `1px solid color-mix(in srgb, ${cfg.color} 30%, transparent)`,
-                borderRadius: '4px',
-              }}>
-                <Icon size={12} style={{ color: cfg.color }} />
-                <span style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', color: cfg.color }}>{cfg.label}</span>
-              </div>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{selected.id}</span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{selected.repo}</span>
-              {selected.status === 'acknowledged' && (
-                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <CheckCircle size={11} /> Acknowledged
-                </span>
-              )}
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--foreground)', margin: '0 0 8px' }}>{selected.title}</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>
-              <span style={{ fontFamily: 'var(--font-mono)' }}>{selected.file}:{selected.line}</span>
-              {selected.pr && <span>PR #{selected.pr}</span>}
-              <span style={{ fontSize: '0.7rem', color: 'var(--muted-foreground)' }}>{selected.category}</span>
-            </div>
-          </div>
-
-          <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Description */}
-            <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: '8px' }}>What was detected</div>
-              <p style={{ fontSize: '0.875rem', color: 'var(--secondary-foreground)', lineHeight: '1.7', margin: 0 }}>{selected.description}</p>
-            </div>
-
-            {/* Impact */}
-            <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: '8px' }}>Potential impact</div>
-              <div style={{
-                background: `color-mix(in srgb, ${cfg.color} 6%, var(--secondary))`,
-                border: `1px solid color-mix(in srgb, ${cfg.color} 20%, var(--border))`,
-                borderRadius: '6px', padding: '12px 14px',
-              }}>
-                <p style={{ fontSize: '0.875rem', color: 'var(--foreground)', lineHeight: '1.6', margin: 0 }}>{selected.impact}</p>
-              </div>
-            </div>
-
-            {/* Code */}
-            <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: '8px' }}>Affected code</div>
-              <div className="finding-code" style={{ background: 'var(--code-background)', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px 14px', overflow: 'auto' }}>
-                <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', color: 'var(--severity-critical)' }}>{selected.codeSnippet}</code>
-              </div>
-            </div>
-
-            {/* Fix */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: '8px' }}>
-                <OrbXS size={11} variant="active" />
-                AI Suggested Fix
-              </div>
-              <p style={{ fontSize: '0.875rem', color: 'var(--secondary-foreground)', lineHeight: '1.6', margin: '0 0 10px' }}>{selected.fix}</p>
-              <div className="finding-code" style={{ background: 'var(--code-background)', border: '1px solid color-mix(in srgb, var(--accent) 30%, var(--border))', borderRadius: '6px', padding: '12px 14px' }}>
-                <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', color: 'var(--accent)' }}>{selected.fixSnippet}</code>
-              </div>
-            </div>
-
-            {/* AI confidence */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--secondary)', borderRadius: '6px' }}>
-              <OrbXS size={13} variant="active" />
-              <span style={{ fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>AI confidence</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: '600', color: 'var(--foreground)' }}>{selected.aiConfidence}%</span>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {selected.status === 'open' && (
-                <>
-                  <button className="btn btn-primary" style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    padding: '9px 16px', background: 'var(--primary)', color: '#fff',
-                    border: 'none', borderRadius: '6px', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer',
-                  }}>
-                    <Code2 size={13} /> View in PR <ArrowRight size={12} />
-                  </button>
-                  <button className="btn btn-secondary" style={{
-                    padding: '9px 16px', background: 'transparent',
-                    border: '1px solid var(--border)', color: 'var(--muted-foreground)',
-                    borderRadius: '6px', fontSize: '0.875rem', cursor: 'pointer',
-                  }}>
-                    Acknowledge
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div> : (
-          <div className="empty-state" style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
-            <ShieldAlert size={22} style={{ color: 'var(--muted-foreground)', marginBottom: 10 }} />
-            <div className="empty-title">Select a security finding</div>
-            <div className="empty-sub">Expand a finding to review its explanation, impact, affected code, and suggested remediation.</div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

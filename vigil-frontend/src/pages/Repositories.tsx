@@ -36,7 +36,12 @@ interface Repository {
   language: string;
   openPRs: number;
   findings: number;
-  score: number;
+  findingCounts: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
   status: Status;
   lastAnalyzed: string;
   branch: string;
@@ -52,7 +57,7 @@ const REPOSITORIES: Repository[] = [
     language: 'Go',
     openPRs: 3,
     findings: 4,
-    score: 42,
+    findingCounts: { critical: 2, high: 1, medium: 1, low: 0 },
     status: 'critical',
     lastAnalyzed: '2 hours ago',
     branch: 'main',
@@ -66,7 +71,7 @@ const REPOSITORIES: Repository[] = [
     language: 'Python',
     openPRs: 1,
     findings: 2,
-    score: 68,
+    findingCounts: { critical: 0, high: 1, medium: 1, low: 0 },
     status: 'medium',
     lastAnalyzed: '6 hours ago',
     branch: 'main',
@@ -80,7 +85,7 @@ const REPOSITORIES: Repository[] = [
     language: 'TypeScript',
     openPRs: 2,
     findings: 1,
-    score: 84,
+    findingCounts: { critical: 0, high: 0, medium: 0, low: 1 },
     status: 'low',
     lastAnalyzed: '1 day ago',
     branch: 'main',
@@ -94,7 +99,7 @@ const REPOSITORIES: Repository[] = [
     language: 'Python',
     openPRs: 0,
     findings: 0,
-    score: 96,
+    findingCounts: { critical: 0, high: 0, medium: 0, low: 0 },
     status: 'clean',
     lastAnalyzed: '3 hours ago',
     branch: 'production',
@@ -108,7 +113,7 @@ const REPOSITORIES: Repository[] = [
     language: 'Swift',
     openPRs: 0,
     findings: 0,
-    score: 0,
+    findingCounts: { critical: 0, high: 0, medium: 0, low: 0 },
     status: 'pending',
     lastAnalyzed: 'Not analyzed',
     branch: 'develop',
@@ -122,7 +127,7 @@ const REPOSITORIES: Repository[] = [
     language: 'HCL',
     openPRs: 1,
     findings: 0,
-    score: 0,
+    findingCounts: { critical: 0, high: 0, medium: 0, low: 0 },
     status: 'pending',
     lastAnalyzed: 'Analysis queued',
     branch: 'main',
@@ -150,19 +155,39 @@ const RECENT_PRS = [
   { id: 41, title: 'chore: update Go dependencies', author: 'Dev Kapoor', findings: 1, state: 'Review required' },
 ];
 
-function statusLabel(status: Status) {
-  if (status === 'critical') return 'Critical risk';
-  if (status === 'medium') return 'Needs attention';
-  if (status === 'low') return 'Low risk';
-  if (status === 'clean') return 'Secure';
-  return 'Analysis pending';
+function pluralizeFindings(count: number, severity: string) {
+  return `${count} ${severity} ${count === 1 ? 'finding' : 'findings'}`;
+}
+
+function findingsSummary(repo: Repository) {
+  if (repo.status === 'pending') return 'Awaiting analysis';
+  if (repo.findings === 0) return 'No active findings';
+
+  return ([
+    ['Critical', repo.findingCounts.critical],
+    ['High', repo.findingCounts.high],
+    ['Medium', repo.findingCounts.medium],
+    ['Low', repo.findingCounts.low],
+  ] as const)
+    .filter(([, count]) => count > 0)
+    .map(([severity, count]) => `${count} ${severity}`)
+    .join(' · ');
+}
+
+function statusLabel(repo: Repository) {
+  if (repo.status === 'critical') return pluralizeFindings(repo.findingCounts.critical, 'Critical');
+  if (repo.status === 'medium' && repo.findingCounts.high) return pluralizeFindings(repo.findingCounts.high, 'High');
+  if (repo.status === 'medium') return pluralizeFindings(repo.findingCounts.medium, 'Medium');
+  if (repo.status === 'low') return pluralizeFindings(repo.findingCounts.low, 'Low');
+  if (repo.status === 'clean') return 'No active findings';
+  return repo.lastAnalyzed;
 }
 
 function RepoBadge({ repo }: { repo: Repository }) {
   return (
     <span className={`repo-status repo-tone-${repo.status}`}>
       <span className="dot" />
-      {statusLabel(repo.status)}
+      {statusLabel(repo)}
     </span>
   );
 }
@@ -178,7 +203,7 @@ function EmptyRepositories({ onConnect }: { onConnect: () => void }) {
       <button className="btn btn-primary" onClick={onConnect}>
         <GitFork size={14} /> Connect GitHub
       </button>
-      <div className="repo-readonly-note"><Eye size={11} /> Read-only access. Vigil cannot push or modify code.</div>
+      <div className="repo-readonly-note"><Eye size={11} /> You control which repositories are connected to Vigil.</div>
     </div>
   );
 }
@@ -199,6 +224,11 @@ function RepositoryCard({ repo, onOpen }: { repo: Repository; onOpen: () => void
           <RepoBadge repo={repo} />
         </div>
         <p className="repo-description">{repo.description}</p>
+        <div className={`repo-findings-row repo-tone-${repo.status}`}>
+          <ShieldAlert size={12} />
+          <span>Security findings</span>
+          <strong>{findingsSummary(repo)}</strong>
+        </div>
         <div className="repo-meta-grid">
           <div><span>Default branch</span><strong><GitBranch size={11} /> {repo.branch}</strong></div>
           <div><span>Open pull requests</span><strong><GitPullRequest size={11} /> {repo.openPRs}</strong></div>
@@ -235,7 +265,8 @@ function RepositoryList({ hasRepositories }: { hasRepositories: boolean }) {
     return result.sort((a, b) => {
       if (sort === 'name') return a.name.localeCompare(b.name);
       if (sort === 'recent') return a.lastAnalyzed.localeCompare(b.lastAnalyzed);
-      return a.score - b.score;
+      const priority: Record<Status, number> = { critical: 0, medium: 1, low: 2, pending: 3, clean: 4 };
+      return priority[a.status] - priority[b.status] || b.findings - a.findings;
     });
   }, [filter, query, sort]);
 
@@ -272,7 +303,7 @@ function RepositoryList({ hasRepositories }: { hasRepositories: boolean }) {
             <div className="repo-connection-icon"><GitFork size={15} /></div>
             <div>
               <strong>GitHub connected</strong>
-              <span>acme-security · acme-corp and acme-labs · Read-only access</span>
+              <span>acme-security · acme-corp and acme-labs · Repository access connected</span>
             </div>
             <span className="repo-healthy"><CheckCircle size={11} /> Healthy</span>
             <button className="btn btn-ghost btn-sm" onClick={() => navigate('/repositories/connect')}>
@@ -298,7 +329,7 @@ function RepositoryList({ hasRepositories }: { hasRepositories: boolean }) {
                   className={`btn btn-sm ${filter === value ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => setFilter(value)}
                 >
-                  {value === 'all' ? 'All' : value === 'attention' ? 'Needs attention' : 'Secure'}
+                  {value === 'all' ? 'All' : value === 'attention' ? 'Needs attention' : 'No active findings'}
                 </button>
               ))}
             </div>
@@ -358,22 +389,22 @@ function RepositoryDetail({ repo }: { repo: Repository }) {
           <div className="repo-detail-tags">
             <span><GitBranch size={11} /> {repo.branch}</span>
             <span>{repo.private ? <Lock size={11} /> : <Unlock size={11} />} {repo.private ? 'Private' : 'Public'}</span>
-            <span><Clock size={11} /> Analyzed {repo.lastAnalyzed}</span>
+            <span><Clock size={11} /> {repo.status === 'pending' ? repo.lastAnalyzed : `Analyzed ${repo.lastAnalyzed}`}</span>
           </div>
         </div>
         <div className="repo-posture">
-          <span>Security posture</span>
-          <strong className={`repo-tone-text-${repo.status}`}>{repo.status === 'pending' ? '—' : repo.score}</strong>
+          <span>Active findings</span>
+          <strong className={`repo-tone-text-${repo.status}`}>{repo.status === 'pending' ? '—' : repo.findings}</strong>
           <RepoBadge repo={repo} />
         </div>
       </div>
 
       <div className="repo-summary-grid">
         {[
-          { label: 'Open findings', value: repo.findings, note: repo.findings ? 'Requires review' : 'No open risks', icon: ShieldAlert, tone: repo.findings ? 'critical' : 'safe' },
+          { label: 'Open findings', value: repo.status === 'pending' ? '—' : repo.findings, note: findingsSummary(repo), icon: ShieldAlert, tone: repo.findings ? 'critical' : repo.status === 'pending' ? 'foreground' : 'safe' },
           { label: 'Open pull requests', value: repo.openPRs, note: `${Math.min(repo.openPRs, 2)} awaiting decision`, icon: GitPullRequest, tone: 'primary' },
           { label: 'Repository commits', value: repo.commits, note: `Tracking ${repo.branch}`, icon: GitCommitHorizontal, tone: 'foreground' },
-          { label: 'Last analysis', value: repo.lastAnalyzed, note: 'Continuous monitoring on', icon: ShieldCheck, tone: 'safe' },
+          { label: 'Last analysis', value: repo.lastAnalyzed, note: 'AI analysis status', icon: ShieldCheck, tone: 'safe' },
         ].map(item => (
           <div className={`repo-summary-card repo-summary-${item.tone}`} key={item.label}>
             <item.icon size={14} />
@@ -469,7 +500,7 @@ function ConnectRepository() {
       </button>
       <PageHeader
         title="Connect GitHub repository"
-        subtitle="Add repositories to Vigil using secure, read-only GitHub access"
+        subtitle="Add repositories to Vigil for pull-request security analysis"
       />
 
       <div className="repo-connect-layout">
@@ -482,7 +513,7 @@ function ConnectRepository() {
           ))}
           <div className="repo-permission-note">
             <ShieldCheck size={15} />
-            <div><strong>Least-privilege access</strong><span>Vigil requests code and pull-request read access only. It cannot merge, push, or change settings.</span></div>
+            <div><strong>Repository access</strong><span>Vigil uses connected repository and pull-request data for security analysis.</span></div>
           </div>
         </aside>
 
@@ -511,11 +542,11 @@ function ConnectRepository() {
                   <div className="repo-connect-heading"><GitFork size={22} /><div><strong>Connect your GitHub account</strong><span>Authorize Vigil to list repositories available to you.</span></div></div>
                   <div className="repo-scope-box">
                     <Eye size={15} />
-                    <div><strong>Secure, read-only authorization</strong><span>Vigil requests repository metadata, source code, commits, and pull-request read access. Push, merge, admin, and workflow permissions are never requested.</span></div>
+                    <div><strong>Secure repository authorization</strong><span>Connect repository metadata, code changes, commits, and pull-request context for security analysis.</span></div>
                   </div>
                   <div className="repo-org-list">
                     <div><CheckCircle size={13} /><span><strong>Read pull requests and code diffs</strong>Required for security review</span><span className="text-safe">Requested</span></div>
-                    <div><Lock size={13} /><span><strong>Write or merge code</strong>Vigil cannot modify your repositories</span><span>Not requested</span></div>
+                    <div><Lock size={13} /><span><strong>Repository permissions</strong>Managed through your GitHub connection</span><span>Connected scope</span></div>
                   </div>
                   <div className="repo-connect-actions">
                     <button className="btn btn-secondary" onClick={() => navigate('/repositories')}>Cancel</button>
@@ -528,7 +559,7 @@ function ConnectRepository() {
 
           {step === 'select' && (
             <>
-              <div className="repo-connect-heading"><GitBranch size={22} /><div><strong>Select repositories</strong><span>Choose one or more repositories for continuous analysis.</span></div></div>
+              <div className="repo-connect-heading"><GitBranch size={22} /><div><strong>Select repositories</strong><span>Choose repositories for pull-request security analysis.</span></div></div>
               <div className="repo-picker-toolbar">
                 <label className="repo-search"><Search size={13} /><input className="input" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search GitHub repositories" /></label>
                 <select className="input" value={org} onChange={event => setOrg(event.target.value)} aria-label="Filter by organization">
@@ -566,7 +597,7 @@ function ConnectRepository() {
               </div>
               <div className="repo-scope-box">
                 <Eye size={15} />
-                <div><strong>Read-only repository scope</strong><span>Repository metadata, source code, commits, and pull requests. No write, admin, workflow, or merge permissions.</span></div>
+                <div><strong>Repository analysis scope</strong><span>Repository metadata, code changes, commits, and pull-request context used by Vigil analysis.</span></div>
               </div>
               <div className="repo-connect-actions">
                 <button className="btn btn-secondary" onClick={() => setStep('select')}>Back</button>
@@ -579,7 +610,7 @@ function ConnectRepository() {
             <div className="repo-connect-state" aria-live="polite">
               <LoaderCircle size={30} className="repo-spin" />
               <strong>Connecting repositories</strong>
-              <span>Verifying read-only permissions and preparing the first security analysis…</span>
+              <span>Verifying repository access and preparing the first security analysis…</span>
               <div className="repo-progress"><span /></div>
             </div>
           )}

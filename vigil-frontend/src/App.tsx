@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AppProvider } from './contexts/AppContext';
+import { GitHubProvider } from './contexts/GitHubContext';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import Shell from './components/Shell';
 import Welcome from './pages/Welcome';
@@ -51,6 +52,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AppProvider>
+        <GitHubProvider>
         <BrowserRouter>
           <Routes>
             {/* Public / onboarding */}
@@ -66,31 +68,35 @@ export default function App() {
               <Route path="/connect" element={<Connect />} />
 
               <Route element={<Shell />}>
-                {/* Figma Make UI pages */}
+                {/* Primary dynamic functional pages */}
                 <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/repositories" element={<Repositories />} />
+                <Route path="/repositories" element={<RepositoriesPage />} />
                 <Route path="/pull-requests" element={<PullRequests />} />
                 <Route path="/findings" element={<Findings />} />
                 <Route path="/commits" element={<Commits />} />
+                <Route path="/commit-analysis" element={<Commits />} />
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/review-history" element={<ReviewHistory />} />
                 <Route path="/settings" element={<Settings />} />
 
                 {/* Existing functional/detail routes retained from the VS Code project */}
-                <Route path="/repositories/connect" element={<Repositories />} />
+                <Route path="/repositories/connect" element={<Navigate to="/connect" replace />} />
                 <Route path="/repositories/:repoId" element={<RepositoryDetailPage />} />
                 <Route path="/repositories/:repoId/pull-requests" element={<PullRequestsPage />} />
                 <Route path="/pull-requests/:id" element={<PRDetailPage />} />
                 <Route path="/review-queue" element={<ReviewQueuePage />} />
 
-                {/* Existing alternate repository list kept available */}
+                {/* Alternate / demo routes */}
                 <Route path="/repositories/list" element={<RepositoriesPage />} />
+                <Route path="/repositories/demo" element={<Repositories />} />
               </Route>
+
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
+        </GitHubProvider>
       </AppProvider>
     </AuthProvider>
   );

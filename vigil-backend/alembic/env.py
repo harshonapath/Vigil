@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.config import settings
 from app.db.base import Base
+from app.db.session import engine as _registered_engine  # registers SQLite UUID type compilation
 import app.models  # Ensures all SQLAlchemy models are registered onto Base.metadata
 
 # this is the Alembic Config object, which provides
@@ -12,7 +13,11 @@ import app.models  # Ensures all SQLAlchemy models are registered onto Base.meta
 config = context.config
 
 # Set DB URL dynamically from app settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+db_url = settings.DATABASE_URL or "sqlite:///./vigil.db"
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+config.set_main_option("sqlalchemy.url", db_url)
+
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

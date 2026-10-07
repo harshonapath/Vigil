@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
+import base64
 import httpx
+import re
 
 from app.core.config import settings
 from app.integrations.github.auth import GitHubAuthManager
@@ -218,6 +220,24 @@ class GitHubClient:
             return result
         return {}
 
+    async def compare_commits(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        base_sha: str,
+        head_sha: str,
+    ) -> Dict[str, Any]:
+        """Return GitHub's ancestry comparison for two repository commit SHAs."""
+        if not all(isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{7,64}", value) for value in (base_sha, head_sha)):
+            raise ValueError("Commit comparison requires valid SHA strings")
+        result = await self.request(
+            method="GET",
+            endpoint=f"/repos/{owner}/{repo}/compare/{base_sha}...{head_sha}",
+            installation_id=installation_id,
+        )
+        return result if isinstance(result, dict) else {}
+
     async def get_pull_request_commits(
         self,
         installation_id: int,
@@ -244,6 +264,26 @@ class GitHubClient:
             return result
         return []
 
+    async def get_pull_request_files(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        page: int = 1,
+        per_page: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve one bounded page of changed-file metadata for a PR diff."""
+        page = max(1, page)
+        per_page = min(max(1, per_page), 100)
+        result = await self.request(
+            method="GET",
+            endpoint=f"/repos/{owner}/{repo}/pulls/{pr_number}/files",
+            installation_id=installation_id,
+            params={"page": page, "per_page": per_page},
+        )
+        return result if isinstance(result, list) else []
+
     async def get_commit(
         self,
         installation_id: int,
@@ -263,6 +303,34 @@ class GitHubClient:
         if isinstance(result, dict):
             return result
         return {}
+
+    async def get_file_content_at_sha(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        path: str,
+        sha: str,
+    ) -> Optional[str]:
+        """Fetch one file at an immutable Git commit SHA; never resolve a branch name."""
+        safe_path = path.replace("\\", "/")
+        if safe_path.startswith("/") or any(part in ("", ".", "..") for part in safe_path.split("/")):
+            return None
+        result = await self.request(
+            method="GET",
+            endpoint=f"/repos/{owner}/{repo}/contents/{safe_path}",
+            installation_id=installation_id,
+            params={"ref": sha},
+        )
+        if not isinstance(result, dict) or result.get("type") != "file":
+            return None
+        encoded = result.get("content")
+        if not isinstance(encoded, str):
+            return None
+        try:
+            return base64.b64decode(encoded, validate=False).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return None
 
     async def create_pull_request_review(
         self,

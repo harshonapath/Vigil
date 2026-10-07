@@ -116,12 +116,21 @@ def setup_test_data(db):
     db.commit()
     return review
 
+AUTH_HEADERS = {"X-Reviewer-Login": "test-reviewer"}
+
+
+def test_publish_review_unauthenticated(db_override):
+    review = setup_test_data(db_override)
+    response = client.post(f"/api/v1/reviews/{review.id}/publish")
+    assert response.status_code == 401
+
+
 @patch("app.integrations.github.client.GitHubClient.create_pull_request_review")
 def test_publish_review_success(mock_create_review, db_override):
     mock_create_review.return_value = {"id": 12345, "html_url": "https://github.com/testowner/testrepo/pull/1#review-12345"}
     review = setup_test_data(db_override)
 
-    response = client.post(f"/api/v1/reviews/{review.id}/publish")
+    response = client.post(f"/api/v1/reviews/{review.id}/publish", headers=AUTH_HEADERS)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == ReviewStatus.PUBLISHED.value
@@ -135,12 +144,12 @@ def test_publish_review_no_verified_findings(mock_create_review, db_override):
     finding.status = FindingStatus.PENDING_REVIEW.value
     db_override.commit()
 
-    response = client.post(f"/api/v1/reviews/{review.id}/publish")
+    response = client.post(f"/api/v1/reviews/{review.id}/publish", headers=AUTH_HEADERS)
     assert response.status_code == 404 # ResourceNotFoundException
     assert "No verified findings available to publish" in response.json()["detail"]
 
 def test_publish_review_not_found(db_override):
-    response = client.post(f"/api/v1/reviews/{uuid.uuid4()}/publish")
+    response = client.post(f"/api/v1/reviews/{uuid.uuid4()}/publish", headers=AUTH_HEADERS)
     assert response.status_code == 404
 
 @patch("app.integrations.github.client.GitHubClient.create_pull_request_review")
@@ -149,10 +158,11 @@ def test_publish_review_idempotent(mock_create_review, db_override):
     review = setup_test_data(db_override)
     
     # First publish
-    res1 = client.post(f"/api/v1/reviews/{review.id}/publish")
+    res1 = client.post(f"/api/v1/reviews/{review.id}/publish", headers=AUTH_HEADERS)
     assert res1.status_code == 200
 
     # Second publish
-    res2 = client.post(f"/api/v1/reviews/{review.id}/publish")
+    res2 = client.post(f"/api/v1/reviews/{review.id}/publish", headers=AUTH_HEADERS)
     assert res2.status_code == 200
     assert mock_create_review.call_count == 1
+

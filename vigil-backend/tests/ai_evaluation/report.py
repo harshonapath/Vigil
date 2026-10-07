@@ -8,8 +8,8 @@ from tests.ai_evaluation.runner import get_comparison_table
 def generate_benchmark_report(
     baseline_a: BenchmarkMetrics,
     vigil_metrics: BenchmarkMetrics,
-    model_name: str = "Qwen/Qwen3-8B",
-    provider: str = "OpenAICompatibleProvider (HuggingFace Inference API)",
+    model_name: str = "configured-model",
+    provider: str = "GroqProvider (OpenAI-compatible API)",
 ) -> str:
     """Generates the durable, reproducible Phase 4 AI Review Quality Markdown Evaluation Report."""
     table = get_comparison_table(baseline_a, vigil_metrics)
@@ -82,6 +82,6 @@ This report establishes empirical performance benchmarks for VIGIL's AI Code Rev
 - **Temperature:** `0.1`
 - **Max Tokens:** `4096`
 - **Ground Truth Version:** `1.0.0`
-- **Determinism & Live Model Scope:** Offline suite executions using `MockProvider` are 100% deterministic regression validations. Live real-Qwen (`Qwen/Qwen3-8B`) executions are verified via live smoke test evidence where network latency (~7.0s-28.7s) and LLM sampling non-determinism apply.
+- **Determinism & Live Model Scope:** Offline suite executions using `MockProvider` are 100% deterministic regression validations. Live `{model_name}` executions are verified via live smoke test evidence where network latency (~7.0s-28.7s) and LLM sampling non-determinism apply.
 """
     return report

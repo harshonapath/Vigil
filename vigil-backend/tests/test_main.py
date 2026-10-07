@@ -80,8 +80,9 @@ def test_get_review_not_found():
 
 def test_publish_review_not_found():
     fake_id = str(uuid.uuid4())
-    res = client.post(f"/api/v1/reviews/{fake_id}/publish")
+    res = client.post(f"/api/v1/reviews/{fake_id}/publish", headers={"X-Reviewer-Login": "test-reviewer"})
     assert res.status_code == 404
+
 
 
 def test_get_review_queue_not_found():

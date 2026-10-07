@@ -43,6 +43,10 @@ class AIProviderError(AIGatewayError):
         super().__init__(message=message, status_code=502)
 
 
+class AIModelUnavailableError(AIProviderError):
+    """Configured model is unavailable and a configured fallback may be tried."""
+
+
 class AIResponseError(AIGatewayError):
     """Raised when the AI provider returns an empty, invalid, or malformed response."""
 

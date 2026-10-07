@@ -1,175 +1,348 @@
-import { useState } from 'react';
-import { CheckCircle, XCircle, Clock, ArrowUpRight, User, ShieldAlert } from 'lucide-react';
-import { OrbXS } from '../components/AIOrb';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  CheckCircle,
+  Clock,
+  RotateCcw,
+  Loader2,
+  AlertTriangle,
+  GitPullRequest,
+  ArrowRight,
+} from 'lucide-react';
 import PageHeader from '../components/PageHeader';
+import { useGitHub } from '../contexts/GitHubContext';
+import { repositoryService } from '../services/repositoryService';
+import { pullRequestService } from '../services/pullRequestService';
+import { reviewService } from '../services/reviewService';
+import { findingService } from '../services/findingService';
+import type { ReviewRead, FindingRead } from '../types';
 
-const reviews = [
-  {
-    id: 'R-028', pr: 39, title: 'chore: update CI pipeline config', repo: 'infrastructure',
-    reviewer: 'Dev Kapoor', decision: 'approved', findings: 0,
-    date: 'Sep 24, 2026', time: '14:32', duration: '12 min',
-    aiStatus: 'complete', humanNote: 'CI config changes look safe. No security-relevant modifications.',
-  },
-  {
-    id: 'R-027', pr: 35, title: 'feat: add OAuth2 provider support', repo: 'auth-service',
-    reviewer: 'Priya Sharma', decision: 'changes_requested', findings: 2,
-    date: 'Sep 23, 2026', time: '16:45', duration: '28 min',
-    aiStatus: 'complete', humanNote: 'OAuth state parameter not validated. Potential CSRF in auth flow. Must fix before merge.',
-  },
-  {
-    id: 'R-026', pr: 31, title: 'fix: resolve memory leak in cache', repo: 'api-gateway',
-    reviewer: 'Rohan Mehta', decision: 'approved', findings: 0,
-    date: 'Sep 22, 2026', time: '10:18', duration: '8 min',
-    aiStatus: 'complete', humanNote: 'Memory management fix. AI confirmed no security implications.',
-  },
-  {
-    id: 'R-025', pr: 28, title: 'feat: add export to CSV endpoint', repo: 'data-pipeline',
-    reviewer: 'Anita Bose', decision: 'escalated', findings: 1,
-    date: 'Sep 21, 2026', time: '11:54', duration: '19 min',
-    aiStatus: 'complete', humanNote: 'Possible CSV injection — escalated to senior review.',
-  },
-  {
-    id: 'R-024', pr: 25, title: 'deps: upgrade SQLAlchemy to 2.0', repo: 'auth-service',
-    reviewer: 'Dev Kapoor', decision: 'approved', findings: 0,
-    date: 'Sep 20, 2026', time: '09:10', duration: '15 min',
-    aiStatus: 'complete', humanNote: 'Dependency upgrade verified against changelog. No breaking security changes.',
-  },
-];
-
-const decisionConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
-  approved: { label: 'Approved', icon: CheckCircle, color: 'var(--accent)' },
-  changes_requested: { label: 'Changes Requested', icon: XCircle, color: 'var(--severity-medium)' },
-  escalated: { label: 'Escalated', icon: ArrowUpRight, color: 'var(--severity-critical)' },
-  pending: { label: 'Pending', icon: Clock, color: 'var(--primary)' },
-};
+export interface HistoryItem {
+  id: string;
+  repo: string;
+  repoFullName: string;
+  prNumber: number;
+  prInternalId: string;
+  prTitle: string;
+  status: string;
+  timestamp: string;
+  findingCount: number;
+  severityCounts: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  summary: string;
+  rawReview?: ReviewRead;
+}
 
 export default function ReviewHistory() {
-  const [filter, setFilter] = useState<'all' | 'approved' | 'changes_requested' | 'escalated'>('all');
-  const visibleReviews = reviews.filter(review => filter === 'all' || review.decision === filter);
+  const navigate = useNavigate();
+  const { installationId } = useGitHub();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reviews, setReviews] = useState<HistoryItem[]>([]);
+  const [filter, setFilter] = useState<'all' | 'published' | 'ready' | 'draft' | 'failed'>('all');
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHistory = async () => {
+      setLoading(true);
+      setError('');
+
+      try {
+        const repoRes = await repositoryService.getMyRepositories(1, 20, installationId);
+        if (cancelled) return;
+
+        if (repoRes.items.length === 0) {
+          setReviews([]);
+          return;
+        }
+
+        const historyItems: HistoryItem[] = [];
+
+        for (const repo of repoRes.items) {
+          try {
+            const prRes = await pullRequestService.getPullRequestsForRepository(repo.id, 1, 30);
+            if (cancelled) return;
+
+            for (const pr of prRes.items) {
+              try {
+                // Fetch PR findings and review
+                const [findingsRes, reviewData] = await Promise.allSettled([
+                  findingService.getFindingsForPR(pr.id),
+                  reviewService.getReviewForPR(pr.id),
+                ]);
+
+                const findings: FindingRead[] =
+                  findingsRes.status === 'fulfilled' ? findingsRes.value.items : [];
+                const review: ReviewRead | null =
+                  reviewData.status === 'fulfilled' ? reviewData.value : null;
+
+                const sevCounts = {
+                  critical: findings.filter(f => f.severity.toUpperCase() === 'CRITICAL').length,
+                  high: findings.filter(f => f.severity.toUpperCase() === 'HIGH').length,
+                  medium: findings.filter(f => f.severity.toUpperCase() === 'MEDIUM').length,
+                  low: findings.filter(f => f.severity.toUpperCase() === 'LOW').length,
+                };
+
+                const dateStr = review?.created_at || pr.created_at;
+                const formattedDate = new Date(dateStr).toLocaleString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
+
+                const statusLower = (review?.status || pr.status || 'draft').toLowerCase();
+
+                historyItems.push({
+                  id: review?.id || pr.id,
+                  repo: repo.name,
+                  repoFullName: repo.full_name,
+                  prNumber: pr.pr_number,
+                  prInternalId: pr.id,
+                  prTitle: pr.title,
+                  status: statusLower,
+                  timestamp: formattedDate,
+                  findingCount: findings.length,
+                  severityCounts: sevCounts,
+                  summary:
+                    review?.summary ||
+                    (findings.length > 0
+                      ? `${findings.length} security finding${findings.length === 1 ? '' : 's'} identified across synchronized files.`
+                      : 'Security scan complete — no active vulnerabilities found.'),
+                  rawReview: review || undefined,
+                });
+              } catch {
+                // PR had no review records yet; continue
+              }
+            }
+          } catch {
+            // continue
+          }
+        }
+
+        if (cancelled) return;
+        setReviews(historyItems);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load review history');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [installationId, refreshTick]);
+
+  const filtered = reviews.filter(r => {
+    if (filter === 'all') return true;
+    if (filter === 'published') return r.status === 'published';
+    if (filter === 'ready') return r.status === 'ready';
+    if (filter === 'draft') return r.status === 'draft';
+    if (filter === 'failed') return r.status === 'publish_failed' || r.status === 'failed';
+    return true;
+  });
 
   return (
-    <div className="stage3-page" style={{ padding: '32px 36px', maxWidth: '1000px' }}>
+    <div className="stage3-page" style={{ padding: '32px 36px', maxWidth: '1200px' }}>
       <PageHeader
         title="Review History"
-        subtitle="Complete audit trail of security reviews"
+        subtitle="Chronological audit log of automated and human security reviews"
+        actions={
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setRefreshTick(t => t + 1)}
+            title="Refresh history"
+          >
+            <RotateCcw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        }
       />
 
-      {/* Summary stats */}
-      <div className="stage3-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
-        {[
-          ['28', 'Total Reviews', 'This month'],
-          ['4.2h', 'Avg. Resolution', 'Time to decision'],
-          ['87%', 'Approval Rate', 'Last 30 days'],
-          ['3', 'Escalated', 'Sent to senior'],
-        ].map(([val, label, sub]) => (
-          <div key={label} style={{
-            background: 'var(--card)', border: '1px solid var(--border)',
-            borderRadius: '8px', padding: '16px',
-          }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '22px', fontWeight: '600', color: 'var(--foreground)', marginBottom: '4px' }}>{val}</div>
-            <div style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--foreground)', marginBottom: '2px' }}>{label}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{sub}</div>
-          </div>
-        ))}
-      </div>
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted-foreground)' }}>
+          <Loader2 size={24} className="animate-spin" style={{ display: 'inline-block', marginBottom: 12 }} />
+          <div>Loading review history from backend…</div>
+        </div>
+      )}
 
-      <div className="stage3-filters" style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {(['all', 'approved', 'changes_requested', 'escalated'] as const).map(value => (
-          <button
-            key={value}
-            className="btn btn-sm"
-            onClick={() => setFilter(value)}
-            style={{
-              background: filter === value ? 'var(--primary)' : 'transparent',
-              color: filter === value ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            {value === 'all' ? 'All decisions' : decisionConfig[value].label}
+      {error && !loading && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card)', border: '1px solid var(--status-critical)', borderRadius: 8, marginBottom: 20 }}>
+          <AlertTriangle size={24} style={{ color: 'var(--status-critical)', marginBottom: 8, display: 'inline-block' }} />
+          <div style={{ fontWeight: 600, color: 'var(--foreground)', marginBottom: 6 }}>{error}</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRefreshTick(t => t + 1)}>
+            <RotateCcw size={12} /> Retry
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {/* Timeline */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {visibleReviews.map((r) => {
-          const dcfg = decisionConfig[r.decision];
-          const DIcon = dcfg.icon;
+      {!loading && !error && (
+        <>
+          {/* Filter Bar */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            {(['all', 'published', 'ready', 'draft', 'failed'] as const).map(tab => {
+              const active = filter === tab;
+              const count =
+                tab === 'all'
+                  ? reviews.length
+                  : reviews.filter(r => {
+                      if (tab === 'failed') return r.status === 'publish_failed' || r.status === 'failed';
+                      return r.status === tab;
+                    }).length;
 
-          return (
-            <div
-              key={r.id}
-              style={{
-                background: 'var(--card)', border: '1px solid var(--border)',
-                borderRadius: '8px', overflow: 'hidden',
-                transition: 'border-color 150ms', cursor: 'pointer',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--primary) 30%, var(--border))')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            >
-              {/* Status stripe */}
-              <div style={{ height: '2px', background: dcfg.color }} />
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setFilter(tab)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: active ? '600' : '400',
+                    cursor: 'pointer',
+                    background: active ? 'var(--secondary)' : 'transparent',
+                    border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
+                    color: active ? 'var(--foreground)' : 'var(--muted-foreground)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {tab}
+                  <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>({count})</span>
+                </button>
+              );
+            })}
+          </div>
 
-              <div style={{ padding: '16px 20px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>{r.id}</span>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: '4px',
-                        padding: '2px 8px',
-                        background: `color-mix(in srgb, ${dcfg.color} 12%, transparent)`,
-                        border: `1px solid color-mix(in srgb, ${dcfg.color} 30%, transparent)`,
-                        borderRadius: '4px',
-                      }}>
-                        <DIcon size={10} style={{ color: dcfg.color }} />
-                        <span style={{ fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', color: dcfg.color }}>
-                          {dcfg.label}
-                        </span>
-                      </div>
-                      {r.findings > 0 && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <ShieldAlert size={11} style={{ color: 'var(--severity-medium)' }} />
-                          <span style={{ fontSize: '0.75rem', color: 'var(--severity-medium)' }}>{r.findings} finding{r.findings > 1 ? 's' : ''}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: '0.9rem', fontWeight: '500', color: 'var(--foreground)', marginBottom: '4px' }}>
-                      {r.title}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)', marginBottom: '12px' }}>
-                      {r.repo} · PR #{r.pr} · {r.date} at {r.time} · {r.duration}
-                    </div>
-
-                    {/* Notes */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                        <OrbXS size={12} variant="active" style={{ marginTop: '2px', flexShrink: 0 }} />
-                        <span style={{ fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>
-                          AI analysis complete — {r.findings === 0 ? 'no findings detected' : `${r.findings} issue${r.findings > 1 ? 's' : ''} flagged`}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                        <User size={12} style={{ color: 'var(--secondary-foreground)', marginTop: '2px', flexShrink: 0 }} />
-                        <span style={{ fontSize: '0.8rem', color: 'var(--secondary-foreground)', fontStyle: 'italic' }}>
-                          "{r.humanNote}"
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reviewer */}
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--foreground)', fontWeight: '500' }}>{r.reviewer}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>Reviewer</div>
-                  </div>
-                </div>
-              </div>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <GitPullRequest size={36} style={{ color: 'var(--muted-foreground)', marginBottom: 12 }} />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--foreground)', margin: '0 0 8px' }}>
+                No review history found
+              </h3>
+              <p style={{ color: 'var(--muted-foreground)', fontSize: '0.85rem', margin: '0 0 18px' }}>
+                Pull request reviews and analysis summaries will appear here once executed.
+              </p>
+              <button className="btn btn-primary" onClick={() => navigate('/pull-requests')}>
+                View Pull Requests
+              </button>
             </div>
-          );
-        })}
-      </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filtered.map(item => {
+                const isPublished = item.status === 'published';
+                const isReady = item.status === 'ready';
+                const isFailed = item.status === 'publish_failed' || item.status === 'failed';
+
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      background: 'var(--card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--muted-foreground)' }}>
+                          {item.repoFullName}
+                        </span>
+                        <span style={{ color: 'var(--border)' }}>·</span>
+                        <span style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--foreground)' }}>
+                          PR #{item.prNumber} {item.prTitle}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {isPublished && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--status-safe) 12%, transparent)', color: 'var(--status-safe)', border: '1px solid color-mix(in srgb, var(--status-safe) 30%, transparent)' }}>
+                            <CheckCircle size={11} /> Published to GitHub
+                          </span>
+                        )}
+                        {isReady && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--primary) 12%, transparent)', color: 'var(--primary)', border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)' }}>
+                            <Clock size={11} /> Review Ready
+                          </span>
+                        )}
+                        {isFailed && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)', border: '1px solid color-mix(in srgb, var(--status-critical) 30%, transparent)' }}>
+                            <AlertTriangle size={11} /> Publish Failed
+                          </span>
+                        )}
+                        {!isPublished && !isReady && !isFailed && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: 'var(--secondary)', color: 'var(--muted-foreground)', border: '1px solid var(--border)', textTransform: 'uppercase' }}>
+                            {item.status}
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>
+                          {item.timestamp}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--secondary-foreground)', lineHeight: '1.6' }}>
+                      {item.summary}
+                    </p>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.75rem' }}>
+                        <span style={{ color: 'var(--muted-foreground)' }}>
+                          Findings: <strong>{item.findingCount}</strong>
+                        </span>
+                        {item.severityCounts.critical > 0 && (
+                          <span style={{ color: 'var(--status-critical)', fontWeight: 600 }}>
+                            {item.severityCounts.critical} Critical
+                          </span>
+                        )}
+                        {item.severityCounts.high > 0 && (
+                          <span style={{ color: 'var(--status-high)', fontWeight: 600 }}>
+                            {item.severityCounts.high} High
+                          </span>
+                        )}
+                        {item.severityCounts.medium > 0 && (
+                          <span style={{ color: 'var(--status-warn)', fontWeight: 500 }}>
+                            {item.severityCounts.medium} Medium
+                          </span>
+                        )}
+                        {item.severityCounts.low > 0 && (
+                          <span style={{ color: 'var(--status-low)' }}>
+                            {item.severityCounts.low} Low
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => navigate(`/pull-requests/${item.prInternalId}`)}
+                      >
+                        Inspect Review <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

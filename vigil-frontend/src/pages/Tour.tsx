@@ -65,7 +65,7 @@ export default function Tour() {
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 60 }}>
           <div style={{ width: 26, height: 26, borderRadius: 5, background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Zap size={13} color="#fff" strokeWidth={2.5} />
+            <Zap size={13} color="var(--primary-foreground)" strokeWidth={2.5} />
           </div>
           <span style={{ fontSize: '1rem', fontWeight: 600, letterSpacing: '-0.02em' }}>vigil</span>
         </div>

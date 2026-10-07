@@ -65,7 +65,7 @@ const FileDiffCard: React.FC<{ file: ChangedFile }> = ({ file }) => {
 
       {/* Diff Content */}
       {expanded && (
-        <div className="overflow-x-auto bg-[#0d1117] text-[12px] font-mono leading-relaxed">
+        <div className="overflow-x-auto bg-[var(--card)] text-[12px] font-mono leading-relaxed">
           <pre className="p-4 w-full inline-block min-w-max">
             {file.patch.split('\\n').map((line, i) => {
               const isAddition = line.startsWith('+');

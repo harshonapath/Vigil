@@ -62,6 +62,9 @@ class GitHubSyncService:
         synced = repository_service.sync_installation_repositories(
             db=db, repos_data=repos_data
         )
+        for repository in synced:
+            repository.installation_id = installation_id
+        db.commit()
 
         logger.info(
             "Installation repository sync complete [installation_id=%d, synced=%d]",
@@ -99,6 +102,9 @@ class GitHubSyncService:
             raise ResourceNotFoundException(
                 f"Repository with ID '{repository_id}' not found"
             )
+
+        repo.installation_id = installation_id
+        db.commit()
 
         logger.info(
             "Starting PR sync [installation_id=%d, repo=%s, state=%s]",

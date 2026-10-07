@@ -399,6 +399,6 @@ def test_reproducibility_metadata():
     metrics_a = BenchmarkMetrics(precision=0.85, recall=0.90, f1_score=0.87)
     metrics_vigil = BenchmarkMetrics(precision=0.95, recall=0.95, f1_score=0.95)
 
-    report = generate_benchmark_report(metrics_a, metrics_vigil, model_name="Qwen/Qwen3-8B")
-    assert "Qwen/Qwen3-8B" in report
+    report = generate_benchmark_report(metrics_a, metrics_vigil, model_name="openai/gpt-oss-120b")
+    assert "openai/gpt-oss-120b" in report
     assert "Ground Truth Version" in report

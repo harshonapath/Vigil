@@ -119,6 +119,10 @@ export async function request<T>(
       `Bearer ${accessToken}`;
   }
 
+  if (!mergedHeaders['X-Reviewer-Login']) {
+    mergedHeaders['X-Reviewer-Login'] = 'vigil-reviewer';
+  }
+
   try {
     const response = await fetch(
       url,

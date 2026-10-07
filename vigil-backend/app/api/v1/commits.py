@@ -92,3 +92,32 @@ def trigger_commit_analysis(
     db: Session = Depends(get_db),
 ) -> CommitAnalysisRead:
     return commit_service.trigger_commit_analysis(db=db, sha=sha)
+
+
+@router.get(
+    "/commits/{sha}/analysis",
+    response_model=Optional[CommitAnalysisRead],
+    summary="Get commit completeness analysis",
+    description="Return latest commit completeness analysis for a commit SHA if available.",
+)
+def get_commit_analysis(
+    sha: str,
+    db: Session = Depends(get_db),
+) -> Optional[CommitAnalysisRead]:
+    from app.models.commit import Commit
+    from app.models.commit_analysis import CommitAnalysis
+
+    commit = db.scalars(select(Commit).where(Commit.sha == sha)).first()
+    if not commit:
+        return None
+
+    latest = db.scalars(
+        select(CommitAnalysis)
+        .where(CommitAnalysis.commit_id == commit.id)
+        .order_by(CommitAnalysis.created_at.desc())
+    ).first()
+
+    if not latest:
+        return None
+
+    return CommitAnalysisRead.model_validate(latest)

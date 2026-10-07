@@ -8,6 +8,10 @@ class FindingCategory(str, Enum):
 
     SECURITY = "Security"
     AUTHORIZATION = "Authorization"
+    PROMPT_INJECTION = "Prompt Injection"
+    COMPLEXITY = "Complexity"
+    EDGE_CASE = "Edge Case"
+    SECURITY_ASSUMPTION = "Security Assumption"
     LOGIC = "Logic"
     RELIABILITY = "Reliability"
     ERROR_HANDLING = "Error Handling"
@@ -17,6 +21,7 @@ class FindingCategory(str, Enum):
     CODE_QUALITY = "Code Quality"
     DOCUMENTATION = "Documentation"
     PERFORMANCE = "Performance"
+
 
 
 class FindingSeverity(str, Enum):
@@ -95,6 +100,66 @@ class ReviewFinding(BaseModel):
     suggestion: Optional[str] = Field(
         default=None,
         description="Concrete recommended remediation or code fix",
+    )
+    current_time_complexity: Optional[str] = Field(
+        default=None,
+        description="Current estimated time complexity (e.g. O(n^2))",
+    )
+    suggested_time_complexity: Optional[str] = Field(
+        default=None,
+        description="Achievable optimized time complexity (e.g. O(n))",
+    )
+    current_space_complexity: Optional[str] = Field(
+        default=None,
+        description="Current estimated space complexity (e.g. O(n))",
+    )
+    suggested_space_complexity: Optional[str] = Field(
+        default=None,
+        description="Achievable optimized space complexity (e.g. O(1))",
+    )
+    edge_case_type: Optional[str] = Field(
+        default=None,
+        description="Type of edge case (e.g. Input Boundary, Null Data, Concurrency, External Dependency)",
+    )
+    scenario: Optional[str] = Field(
+        default=None,
+        description="Realistic production scenario or trigger condition",
+    )
+    expected_behavior: Optional[str] = Field(
+        default=None,
+        description="Expected correct handling behavior under the scenario",
+    )
+    current_behavior: Optional[str] = Field(
+        default=None,
+        description="Current unhandled behavior or failure mode",
+    )
+    potential_impact: Optional[str] = Field(
+        default=None,
+        description="Potential impact or risk (e.g. 500 error, data corruption, stale state)",
+    )
+    assumption_name: Optional[str] = Field(
+        default=None,
+        description="Name or identifier of the security/behavioral assumption",
+    )
+    scope: Optional[str] = Field(
+        default=None,
+        description="Domain/scope of assumption (e.g. authentication, authorization, input, validation)",
+    )
+    previous_assumption: Optional[str] = Field(
+        default=None,
+        description="Previous assumption enforced prior to pull request changes",
+    )
+    new_assumption: Optional[str] = Field(
+        default=None,
+        description="New assumption or relaxed condition in pull request changes",
+    )
+    change_type: Optional[str] = Field(
+        default=None,
+        description="Type of transition (INTRODUCED, STRENGTHENED, WEAKENED, REMOVED, CHANGED, CONTRADICTED)",
+    )
+    potential_repercussions: Optional[str] = Field(
+        default=None,
+        description="Potential security or behavioral repercussions of the assumption change",
     )
     source: str = Field(
         default="AI",

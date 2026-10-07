@@ -266,3 +266,148 @@ async def test_webhook_pr_syncs_to_db(db_session):
     assert pr_in_db.pr_number == 42
     assert pr_in_db.head_sha == "new_head_sha"
     assert pr_in_db.status == PullRequestStatus.OPEN.value
+    assert pr_in_db.author_login == "pr_author"
+
+    repo_in_db = db_session.scalar(select(Repository).where(Repository.github_repo_id == 88888))
+    assert repo_in_db is not None
+    assert repo_in_db.owner_login == "org"
+    assert repo_in_db.full_name == "org/pr-repo"
+
+
+# ============================================================================
+# 5. REGRESSION TESTS: GITHUB PAYLOAD OWNER RESOLUTION & CLIENT CALLS
+# ============================================================================
+
+def test_regression_repository_owner_extraction_nested_and_flat(db_session):
+    """
+    Test that a GitHub repository payload such as:
+    {"id": 12345, "name": "Bizzare", "full_name": "IlIGODIlI/Bizzare", "owner": {"login": "IlIGODIlI"}}
+    and its serialized flat form {"id": 12345, "name": "Bizzare", "full_name": "IlIGODIlI/Bizzare", "owner_login": "IlIGODIlI"}
+    both result in owner_login='IlIGODIlI', name='Bizzare', full_name='IlIGODIlI/Bizzare'.
+    """
+    nested_payload = {
+        "id": 12345,
+        "name": "Bizzare",
+        "full_name": "IlIGODIlI/Bizzare",
+        "owner": {
+            "login": "IlIGODIlI",
+            "id": 54321,
+        },
+    }
+
+    repo = repository_service.sync_repository_payload(db_session, nested_payload)
+    assert repo.owner_login == "IlIGODIlI"
+    assert repo.name == "Bizzare"
+    assert repo.full_name == "IlIGODIlI/Bizzare"
+
+    # Flat payload from model_dump()
+    flat_payload = {
+        "id": 12345,
+        "name": "Bizzare",
+        "full_name": "IlIGODIlI/Bizzare",
+        "owner_login": "IlIGODIlI",
+    }
+
+    repo_flat = repository_service.sync_repository_payload(db_session, flat_payload)
+    assert repo_flat.owner_login == "IlIGODIlI"
+    assert repo_flat.name == "Bizzare"
+    assert repo_flat.full_name == "IlIGODIlI/Bizzare"
+
+
+def test_regression_repository_self_healing_from_unknown_owner(db_session):
+    """
+    If a repository record already exists with owner_login='unknown',
+    the normal sync path must correct it from the authoritative GitHub webhook payload.
+    """
+    # 1. Simulate existing corrupted record with owner_login='unknown'
+    corrupt_payload = {
+        "id": 987654,
+        "name": "Bizzare",
+        "full_name": "unknown/Bizzare",
+        "owner_login": "unknown",
+    }
+    repo_corrupt = repository_service.sync_repository_payload(db_session, corrupt_payload)
+    assert repo_corrupt.owner_login == "unknown"
+
+    # 2. Authoritative GitHub webhook payload arrives
+    authoritative_payload = {
+        "id": 987654,
+        "name": "Bizzare",
+        "full_name": "IlIGODIlI/Bizzare",
+        "owner": {
+            "login": "IlIGODIlI",
+            "id": 112233,
+        },
+    }
+    healed_repo = repository_service.sync_repository_payload(db_session, authoritative_payload)
+    assert healed_repo.id == repo_corrupt.id
+    assert healed_repo.owner_login == "IlIGODIlI"
+    assert healed_repo.name == "Bizzare"
+    assert healed_repo.full_name == "IlIGODIlI/Bizzare"
+    assert healed_repo.html_url == "https://github.com/IlIGODIlI/Bizzare"
+
+
+@pytest.mark.asyncio
+async def test_regression_webhook_pr_sync_calls_github_client_with_correct_owner(db_session):
+    """
+    Ensure that when a pull_request webhook for IlIGODIlI/Bizzare is processed,
+    the GitHub API client receives owner='IlIGODIlI' and repo='Bizzare', NOT owner='unknown'.
+    """
+    from app.integrations.github.webhooks.handlers import PullRequestEventHandler
+    from app.integrations.github.webhooks.schemas import normalize_webhook_payload
+    from app.services.github_sync_service import github_sync_service
+
+    webhook_payload = {
+        "action": "opened",
+        "number": 2,
+        "installation": {"id": 168568119},
+        "repository": {
+            "id": 998877,
+            "name": "Bizzare",
+            "full_name": "IlIGODIlI/Bizzare",
+            "owner": {"login": "IlIGODIlI"},
+            "private": False,
+            "html_url": "https://github.com/IlIGODIlI/Bizzare",
+        },
+        "pull_request": {
+            "id": 554433,
+            "number": 2,
+            "title": "Fix security vulnerability",
+            "body": "PR description",
+            "state": "open",
+            "merged": False,
+            "head": {"sha": "head_sha_999", "ref": "fix-branch"},
+            "base": {"sha": "base_sha_000", "ref": "main"},
+            "user": {"login": "IlIGODIlI"},
+        },
+        "sender": {"id": 1234, "login": "IlIGODIlI"},
+    }
+
+    event = normalize_webhook_payload("pull_request", "delivery-reg-1", webhook_payload)
+    handler = PullRequestEventHandler()
+
+    captured_calls = []
+
+    async def mock_get_pull_request_commits(installation_id, owner, repo, pr_number, page=1, per_page=100):
+        captured_calls.append({
+            "installation_id": installation_id,
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_number,
+        })
+        return []
+
+    with patch.object(github_sync_service._client, "get_pull_request_commits", side_effect=mock_get_pull_request_commits):
+        result = await handler.handle(event, db=db_session)
+        assert result["status"] == "processed"
+        assert result["repository"] == "IlIGODIlI/Bizzare"
+
+    # Verify that the GitHub client was called with the exact owner and repo
+    assert len(captured_calls) == 1
+    call = captured_calls[0]
+    assert call["installation_id"] == 168568119
+    assert call["owner"] == "IlIGODIlI"
+    assert call["repo"] == "Bizzare"
+    assert call["pr_number"] == 2
+    assert call["owner"] != "unknown"
+

@@ -76,6 +76,42 @@ class AIReviewService:
         cat_value = finding.category.value if hasattr(finding.category, "value") else str(finding.category)
         sev_value = finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity)
 
+        evidence_payload = {
+            "why": finding.why,
+            "evidence": finding.evidence,
+            "suggestion": finding.suggestion,
+        }
+        if finding.current_time_complexity:
+            evidence_payload["current_time_complexity"] = finding.current_time_complexity
+        if finding.suggested_time_complexity:
+            evidence_payload["suggested_time_complexity"] = finding.suggested_time_complexity
+        if finding.current_space_complexity:
+            evidence_payload["current_space_complexity"] = finding.current_space_complexity
+        if finding.suggested_space_complexity:
+            evidence_payload["suggested_space_complexity"] = finding.suggested_space_complexity
+        if finding.edge_case_type:
+            evidence_payload["edge_case_type"] = finding.edge_case_type
+        if finding.scenario:
+            evidence_payload["scenario"] = finding.scenario
+        if finding.expected_behavior:
+            evidence_payload["expected_behavior"] = finding.expected_behavior
+        if finding.current_behavior:
+            evidence_payload["current_behavior"] = finding.current_behavior
+        if finding.potential_impact:
+            evidence_payload["potential_impact"] = finding.potential_impact
+        if finding.assumption_name:
+            evidence_payload["assumption_name"] = finding.assumption_name
+        if finding.scope:
+            evidence_payload["scope"] = finding.scope
+        if finding.previous_assumption:
+            evidence_payload["previous_assumption"] = finding.previous_assumption
+        if finding.new_assumption:
+            evidence_payload["new_assumption"] = finding.new_assumption
+        if finding.change_type:
+            evidence_payload["change_type"] = finding.change_type
+        if finding.potential_repercussions:
+            evidence_payload["potential_repercussions"] = finding.potential_repercussions
+
         return Finding(
             analysis_id=analysis_id,
             source=FindingSource.AI_REVIEW.value,
@@ -88,11 +124,7 @@ class AIReviewService:
             end_line=finding.line,
             message=f"{finding.title}: {finding.problem}",
             status=FindingStatus.OPEN.value,
-            evidence={
-                "why": finding.why,
-                "evidence": finding.evidence,
-                "suggestion": finding.suggestion,
-            },
+            evidence=evidence_payload,
         )
 
     @staticmethod

@@ -122,7 +122,7 @@ async def test_empty_provider_response_rejected_by_mock():
 
 # 7. Retry behavior is bounded
 @pytest.mark.asyncio
-async def test_retry_behavior_is_bounded():
+async def test_retry_behavior_is_bounded(monkeypatch):
     mock_client = MagicMock()
     # Simulate repeated 429 RateLimitError
     dummy_response = MagicMock()
@@ -143,6 +143,7 @@ async def test_retry_behavior_is_bounded():
         client=mock_client,
     )
     gateway = AIModelGateway(provider=provider)
+    monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", settings.AI_MODEL)
     request = AICompletionRequest(prompt="Test retry bounded")
 
     with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
@@ -152,6 +153,27 @@ async def test_retry_behavior_is_bounded():
         # Expected calls: 1 initial + 2 retries = 3 calls
         assert mock_client.chat.completions.create.call_count == max_retries + 1
         assert mock_sleep.call_count == max_retries
+
+
+@pytest.mark.asyncio
+async def test_gateway_uses_configured_fallback_after_primary_failure(monkeypatch):
+    class FallbackProvider(BaseAIProvider):
+        def __init__(self):
+            self.models = []
+
+        async def complete(self, request):
+            self.models.append(request.model or settings.AI_MODEL)
+            if len(self.models) == 1:
+                raise AIRateLimitError("limited")
+            return AICompletionResponse(content='{"assumptions":[]}', model=request.model, finish_reason="stop")
+
+    monkeypatch.setattr(settings, "AI_MODEL", "openai/gpt-oss-120b")
+    monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", "openai/gpt-oss-20b")
+    provider = FallbackProvider()
+    response = await AIModelGateway(provider=provider).complete(AICompletionRequest(prompt="test"))
+    assert provider.models == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    assert response.fallback_used is True
+    assert response.retry_count == 0
 
 
 # 8. Gateway does not expose raw provider-specific exceptions
@@ -211,7 +233,8 @@ async def test_authentication_error_is_not_retried():
 async def test_model_configured_through_settings():
     provider = OpenAICompatibleProvider(api_key="test-key")
     assert provider.default_model == settings.AI_MODEL
-    assert provider.default_model == "Qwen/Qwen3-8B"
+    # The provider intentionally has no hard-coded model default. Deployments
+    # must supply AI_MODEL; per-request overrides remain supported.
 
     # Per-request model override works
     mock_provider = MockProvider()

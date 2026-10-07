@@ -60,6 +60,14 @@ class PullRequestService:
         if not pr:
             raise ResourceNotFoundException(f"Pull request with ID '{pull_request_id}' not found")
 
+        existing = db.scalar(select(Analysis).where(
+            Analysis.pull_request_id == pr.id,
+            Analysis.head_sha == pr.head_sha,
+            Analysis.status.in_([AnalysisStatus.QUEUED.value, AnalysisStatus.RUNNING.value, AnalysisStatus.COMPLETED.value]),
+        ).order_by(Analysis.created_at.desc()))
+        if existing:
+            return AnalysisRead.model_validate(existing)
+
         analysis = Analysis(
             pull_request_id=pr.id,
             head_sha=pr.head_sha,
@@ -85,12 +93,19 @@ class PullRequestService:
         title = pr_data.get("title", "")
         description = pr_data.get("body")
 
-        user_raw = pr_data.get("user", {})
-        author_login = (
-            user_raw.get("login") if isinstance(user_raw, dict) else pr_data.get("author_login", "unknown")
-        ) or "unknown"
+        user_raw = pr_data.get("user")
+        author_login = None
+        if isinstance(user_raw, dict):
+            author_login = user_raw.get("login")
+        elif isinstance(user_raw, str) and user_raw.strip():
+            author_login = user_raw.strip()
 
-        head_raw = pr_data.get("head", {})
+        if not author_login:
+            author_login = pr_data.get("author_login")
+
+        author_login = author_login or "unknown"
+
+        head_raw = pr_data.get("head")
         source_branch = (
             (head_raw.get("ref") if isinstance(head_raw, dict) else None)
             or pr_data.get("head_branch")
@@ -103,7 +118,7 @@ class PullRequestService:
             or ""
         )
 
-        base_raw = pr_data.get("base", {})
+        base_raw = pr_data.get("base")
         target_branch = (
             (base_raw.get("ref") if isinstance(base_raw, dict) else None)
             or pr_data.get("base_branch")
